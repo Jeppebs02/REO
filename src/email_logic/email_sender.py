@@ -11,7 +11,7 @@ class EmailSender:
         self.sender_email = sender_email or os.getenv("EMAIL_ADDRESS")
         self.sender_password = sender_password or os.getenv("EMAIL_PASSWORD")
         self.smtp_server = "smtp.gigahost.dk"
-        self.smtp_port = 587  # Use 465 for TLS/SSL or 587 for STARTTLS
+        self.smtp_port = 587  # Don't Use 465.
         logging.basicConfig(level=logging.INFO)
 
 
@@ -29,7 +29,7 @@ class EmailSender:
             logging.info("Successfully logged in to SMTP server.")
             return True
         except Exception as e:
-            logging.error(f"Failed to log in to SMTP server: {e}")
+            logging.error(f"Failed to log in to SMTP server, most likely connection related: {e}")
             return False
 
     def send_email(self, recipient_email, email_subject, email_body):
