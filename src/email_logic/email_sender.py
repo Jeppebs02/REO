@@ -38,7 +38,8 @@ class EmailSender:
             if not self.sender_email or not self.sender_password:
                 raise ValueError("Email credentials are missing. Set them via parameters or environment variables.")
 
-            msg = MIMEText(email_body)
+            # Specify MIME type as HTML
+            msg = MIMEText(email_body, "html")
             msg["From"] = self.sender_email
             msg["To"] = recipient_email
             msg["Subject"] = email_subject
@@ -58,20 +59,83 @@ class EmailSender:
 
     def send_bulk_emails(self, file_path):
         """Reads a CSV file and sends personalized emails to each recipient."""
+        successcounter = 0
+        failcounter = 0
         try:
-            df = pd.read_csv(file_path, delimiter=";", header=None, names=["Name", "Email"])
+            df = pd.read_csv(
+                file_path,
+                delimiter=";",
+                usecols=[0, 1],
+                names=["Name", "Email"],
+                header=None,
+                skip_blank_lines=True,
+                dtype=str,
+                encoding = "latin1"  # Fixes Danish special characters
+            )
+            df["Name"] = df["Name"].str.strip()
+            df["Email"] = df["Email"].str.strip()
+            df.dropna(subset=["Name", "Email"], inplace=True)
+
             recipients = df.to_records(index=False)
+
         except Exception as e:
             logging.error(f"Error reading CSV: {e}")
             return
 
         for name, email in recipients:
-            email_subject = "Test email "
-            email_body = f"Hej {name},\n\nDette er en test email sendt til dig og mig (jeppe).\n\nVenlig hilsen,\nREO kasserer"
+            email_subject = ("Rykker – Kontingentbetaling til REO for 2025")
+
+            email_body = f"""\
+            <html>
+              <body style="font-family: Arial, sans-serif; font-size: 16px; line-height: 1.5; color: #000;">
+                <p>Kære {name},</p>
+
+                <p>Vi kan se, at vi endnu ikke har modtaget din betaling af kontingentet for 2025.</p>
+
+                <p>Hvis denne mail har krydset din indbetaling, skal du naturligvis blot se bort fra denne rykker – og tak for støtten!</p>
+
+                <p>Som tidligere nævnt koster et medlemskab:</p>
+                <ul>
+                  <li>300 kr. for enkeltpersoner</li>
+                  <li>400 kr. for ægtepar</li>
+                  <li>50 kr. for unge under uddannelse</li>
+                  <li>1.500 kr. for firmamedlemskab</li>
+                </ul>
+
+                <p><strong>Du kan betale via:</strong><br>
+                <strong>Netbank:</strong> Danske Bank – Reg.nr. 9570 Konto: 3000753<br>
+                <strong>MobilePay:</strong> 20009</p>
+
+                <p>Frivillige bidrag modtages også meget gerne via bankkontoen.</p>
+
+                <p>Hvis du har spørgsmål til indbetalingen, er du meget velkommen til at kontakte undertegnede.</p>
+
+                <p>Vi håber meget, at du fortsat vil støtte op om REO’s arbejde – og ikke mindst, at vi ses til generalforsamlingen lørdag den 29. marts.</p>
+
+                <p><strong>Se invitationen her:</strong><br>
+                <a href="https://reo.dk/wp-content/uploads/Indkaldelse_til_REO_generalforsamling_2025.pdf" target="_blank">
+                  https://reo.dk/wp-content/uploads/Indkaldelse_til_REO_generalforsamling_2025.pdf
+                </a></p>
+
+                <p style="color: red;"><strong>Vær opmærksom på, at stemmeret på generalforsamlingen kræver, at kontingentet for 2025 er betalt.</strong></p>
+
+                <p>På forhånd tak!</p>
+
+                <p>Med venlig hilsen<br>
+                Søren Søndergaard <br>
+                Kasserer i REO</p>
+              </body>
+            </html>
+            """
 
             success = self.send_email(email, email_subject, email_body)
 
             if success:
                 print(f"Email sent successfully to {name} ({email})")
+                successcounter = successcounter + 1
             else:
                 print(f"Failed to send email to {name} ({email})")
+                failcounter = failcounter + 1
+
+        print(f"Failed emails: {failcounter}\n")
+        print(f"Successful emails: {successcounter}")

@@ -17,7 +17,7 @@ if __name__ == '__main__':
 
     email_sender = EmailSender()
 
-    email_sender.send_bulk_emails(r"C:\Users\jeppe\Documents\GitHub\REO\files\test.csv")
+    email_sender.send_bulk_emails(r"C:\Users\jeppe\Documents\GitHub\REO\files\rykkere2.csv")
 
 
     #test
