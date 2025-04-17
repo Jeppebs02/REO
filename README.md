@@ -21,4 +21,3 @@ This project was developed for **Reel Energioplysning (REO)** as part of a freel
 
 ---
 
-Let me know if you'd like badges or setup instructions added too.
