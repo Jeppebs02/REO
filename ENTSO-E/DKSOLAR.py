@@ -20,7 +20,7 @@ response = requests.request("GET", url, headers=headers, data=payload)
 
 # <editor-fold desc="pad_hourly_to_15min">
 
-# Namespace URI used in the ENTSO-E XML documents
+# Namespace URI used in ENTSO-E XML documents
 NAMESPACE_URI = 'urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0'
 # This registration helps in producing cleaner XML output without 'ns0:' prefixes
 ET.register_namespace('', NAMESPACE_URI)
@@ -46,8 +46,7 @@ def pad_hourly_to_15min(xml_string: str) -> str | None:
         root = ET.fromstring(xml_string)
     except ET.ParseError as e:
         print(f"XML Parsing Error: {e}")
-        # Depending on error handling strategy, you might want to raise the error
-        # or return the original string, or an empty one.
+        # Possibly add error or return None. But for now, just print and return None because I am lazy.
         return None
 
     # Iterate over all TimeSeries (actual data) elements in the document
@@ -176,9 +175,69 @@ def extract_psr_data_to_xml(xml_string: str, psr_name: str) -> str | None:
 # </editor-fold>
 
 
+# <editor-fold desc="Single PSR XML to Numpy Array">
 
+#VERY IMPORTANT, THIS FUNCTION ASSUMES THAT THERE IS ONLY ONE PSR IN THE XML DOCUMENT
+def psr_xml_to_numpy(psr_xml_string: str) -> np.ndarray | None:
+    """
+    Converts a padded and extracted PSR XML string (containing a single TimeSeries)
+    into a 2D NumPy array where each row is [position, quantity].
 
-# <editor-fold desc="Misc2">
+    Args:
+        psr_xml_string: An XML string containing the data for a single
+                        Power System Resource. It's assumed this XML
+                        has one TimeSeries element.
+
+    Returns:
+        A 2D NumPy array with columns for 'position' and 'quantity',
+        or None if parsing fails, no TimeSeries is found, or no Points are found.
+        The dtype of the array will be float to accommodate quantities.
+    """
+    try:
+        root = ET.fromstring(psr_xml_string)
+    except ET.ParseError as e:
+        print(f"XML Parsing Error: {e}")
+        return None
+
+    # Find the TimeSeries element. Since the XML is pre-filtered for one PSR,
+    # there should be exactly one.
+    time_series_element = root.find('.//ns:TimeSeries', NS)
+    if time_series_element is None:
+        print("Error: No TimeSeries element found in the provided XML.")
+        return None
+
+    period_element = time_series_element.find('.//ns:Period', NS)
+    if period_element is None:
+        print("Error: No Period element found within the TimeSeries.")
+        return None
+
+    points_data = []
+    for point_element in period_element.findall('ns:Point', NS):
+        position_el = point_element.find('ns:position', NS)
+        quantity_el = point_element.find('ns:quantity', NS)
+
+        if position_el is not None and quantity_el is not None:
+            try:
+                position = int(position_el.text)
+                quantity = float(quantity_el.text)  # Use float for quantity
+                points_data.append([position, quantity])
+            except (ValueError, TypeError) as e:
+                print(
+                    f"Warning: Could not parse point data: {position_el.text}, {quantity_el.text}. Error: {e}. Skipping point.")
+                continue  # Skip this point if parsing fails
+        else:
+            print("Warning: Point element missing position or quantity. Skipping point.")
+
+    if not points_data:
+        print("No valid points found to create a NumPy array.")
+        return None
+
+    # Convert the list of lists to a NumPy array
+    # Using float as dtype to accommodate potential float quantities
+    numpy_array = np.array(points_data, dtype=float)
+
+    return numpy_array
+
 
 # </editor-fold>
 
