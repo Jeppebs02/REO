@@ -12,10 +12,20 @@ class EntsoeDataProcessor:
     # Namespace map for use with find/findall
     NS = {'ns': NAMESPACE_URI}
 
+    # Rate Limiting Constants
+    MAX_REQUESTS_PER_MINUTE = 400
+    RATE_LIMIT_BUFFER = 10  # Start sleeping when count reaches MAX_REQUESTS_PER_MINUTE - RATE_LIMIT_BUFFER
+    RATE_LIMIT_WINDOW_SECONDS = 60.0  # Duration of the rate limit window in seconds
+    GENERAL_POLITENESS_SECONDS = 0.5 # General sleep between requests
+
     def __init__(self, api_key: str):
         self.api_key = api_key
         # This registration helps in producing cleaner XML output without 'ns0:' prefixes
         ET.register_namespace('', self.NAMESPACE_URI)
+
+        # Rate Limiting State Variables
+        self.request_count_this_minute = 0
+        self.minute_window_start_time = datetime.now()
 
 
 
@@ -235,27 +245,9 @@ class EntsoeDataProcessor:
             overall_end_date_str: str,  # "yyyy-mm-dd"
             domain_eic: str,
             psr_name_to_extract: str,
-            # api_key is now self.api_key
             base_api_url: str = "https://web-api.tp.entsoe.eu/api",
             time_hour_minute: str = "2200"  # The HHmm part for periodStart/End
     ):
-        """
-        Fetches actual generation data for a specific Generation Unit (PSR) over a date range by making iterative daily API calls,
-        processes each day's data (pads to 15-min, extracts PSR, converts to NumPy),
-        and returns a single combined NumPy array with adjusted positions.
-
-        Args:
-            overall_start_date_str: The first day of the period (e.g., "2024-01-01").
-            overall_end_date_str: The last day of the period (e.g., "2024-01-05").
-            domain_eic: The EIC code for the in_Domain (e.g., "10YDK-1--------W").
-            psr_name_to_extract: The name of the PSR to extract (e.g., "Anholt").
-            base_api_url: The base URL for the ENTSO-E API.
-            time_hour_minute: The HHMM string for periodStart/End (e.g., "2200").
-
-        Returns:
-            A 2D NumPy array with [position, quantity] for the entire period,
-            or None if no data could be fetched or processed.
-        """
         date_format = "%Y-%m-%d"
         try:
             current_date_obj = datetime.strptime(overall_start_date_str, date_format)
@@ -276,68 +268,117 @@ class EntsoeDataProcessor:
             url = (f"{base_api_url}?documentType=A73&processType=A16"
                    f"&in_Domain={domain_eic}"
                    f"&periodStart={period_start_formatted}&periodEnd={period_end_formatted}"
-                   f"&securityToken={self.api_key}") # Using self.api_key
+                   f"&securityToken={self.api_key}")
 
-            print(f"  Querying for date: {current_date_obj.strftime(date_format)} -> {url}")
+            print(f"  Querying for date: {current_date_obj.strftime(date_format)}")  # Removed URL from this print
 
-            try:
-                response = requests.request("GET", url, headers={}, data={}, timeout=30)
-                response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
+            max_api_retries = 2  # Max retries for 429 or network issues
+            api_attempt = 0
+            response_text_for_day = None  # Store successful response text here
 
-                daily_xml_data = response.text
-                if not daily_xml_data:
-                    print(f"    Warning: No data returned for {current_date_obj.strftime(date_format)}")
-                    current_date_obj += timedelta(days=1)
-                    time.sleep(1)  # Be polite to the API
-                    continue
+            while api_attempt <= max_api_retries:
+                # --- Rate Limiting Check (before each attempt) ---
+                now = datetime.now()
+                elapsed_since_window_start = (now - self.minute_window_start_time).total_seconds()
 
-                padded_xml = self.pad_hourly_to_15min(daily_xml_data) # Call as method
-                if not padded_xml:
-                    print(f"    Warning: Failed to pad XML for {current_date_obj.strftime(date_format)}")
-                    current_date_obj += timedelta(days=1)
-                    time.sleep(1)
-                    continue
-
-                psr_specific_xml = self.extract_psr_data_to_xml(padded_xml, psr_name_to_extract) # Call as method
-                if not psr_specific_xml:
-                    # This is common if the PSR had no data on a particular day for that domain
-                    # print(f"    Info: PSR '{psr_name_to_extract}' not found or no data for {current_date_obj.strftime(date_format)}")
-                    current_date_obj += timedelta(days=1)
-                    time.sleep(1)
-                    continue
-
-                daily_numpy_array = self.psr_xml_to_numpy(psr_specific_xml) # Call as method
-                if daily_numpy_array is not None and daily_numpy_array.size > 0:
-                    # Adjust positions for the current daily array before adding
-                    # This makes the 'position' relative to the start of the multi-day fetch
-                    daily_numpy_array[:, 0] += total_points_processed
-                    all_daily_numpy_arrays.append(daily_numpy_array)
-                    total_points_processed += daily_numpy_array.shape[0]  # Add number of points from this day
+                if elapsed_since_window_start >= self.RATE_LIMIT_WINDOW_SECONDS:
                     print(
-                        f"    Successfully processed {daily_numpy_array.shape[0]} points for {current_date_obj.strftime(date_format)}.")
-                else:
-                    print(
-                        f"    Warning: No NumPy data extracted for {psr_name_to_extract} on {current_date_obj.strftime(date_format)}")
+                        f"    Rate limit: Minute window expired. Resetting count from {self.request_count_this_minute}.")
+                    self.request_count_this_minute = 0
+                    self.minute_window_start_time = now
+                    elapsed_since_window_start = 0
 
-            except requests.exceptions.HTTPError as http_err:
+                if self.request_count_this_minute >= (self.MAX_REQUESTS_PER_MINUTE - self.RATE_LIMIT_BUFFER):
+                    time_to_wait_for_next_window = self.RATE_LIMIT_WINDOW_SECONDS - elapsed_since_window_start
+                    if time_to_wait_for_next_window > 0:
+                        sleep_duration = time_to_wait_for_next_window + 1.0
+                        print(
+                            f"    Rate limit: Approaching limit ({self.request_count_this_minute} requests). Sleeping for {sleep_duration:.2f} seconds.")
+                        time.sleep(sleep_duration)
+
+                    self.request_count_this_minute = 0
+                    self.minute_window_start_time = datetime.now()
+                # --- End Rate Limiting Check ---
+
+                try:
+                    print(
+                        f"    Attempting API request for {current_date_obj.strftime(date_format)} (attempt {api_attempt + 1})...")
+                    response = requests.request("GET", url, headers={}, data={}, timeout=30)
+                    self.request_count_this_minute += 1
+                    print(
+                        f"    Request count this minute: {self.request_count_this_minute} (Limit: {self.MAX_REQUESTS_PER_MINUTE - self.RATE_LIMIT_BUFFER})")
+
+                    response.raise_for_status()
+                    response_text_for_day = response.text
+                    break  # API call successful, exit retry loop
+
+                except requests.exceptions.HTTPError as http_err:
+                    if http_err.response is not None and http_err.response.status_code == 429:
+                        print(f"    RATE LIMIT HIT (429)! Banned for 10 minutes. Sleeping...")
+                        time.sleep(60 * 10 + 5)  # Sleep for 10 minutes + 5 seconds
+                        self.minute_window_start_time = datetime.now()  # Reset window after long sleep
+                        self.request_count_this_minute = 0  # Reset count
+                        api_attempt += 1
+                        if api_attempt > max_api_retries:
+                            print(
+                                f"    Max retries for 429 reached for date {current_date_obj.strftime(date_format)}. Skipping this date.")
+                        # Continue to next attempt or break if maxed out
+                    else:
+                        error_status = http_err.response.status_code if http_err.response is not None else "Unknown"
+                        print(
+                            f"    HTTP error ({error_status}) for {current_date_obj.strftime(date_format)}: {http_err}")
+                        response_text_for_day = None
+                        break  # Break from API retry loop for other HTTP errors
+                except requests.exceptions.RequestException as req_err:  # Network errors
+                    print(f"    Network error for {current_date_obj.strftime(date_format)}: {req_err}")
+                    api_attempt += 1
+                    if api_attempt > max_api_retries:
+                        print(f"    Max retries for Network error reached. Skipping this date.")
+                    else:
+                        time.sleep(5)  # Wait before retrying network error
+
+            # --- Process the response if successfully fetched ---
+            if response_text_for_day:
+                try:
+                    if not response_text_for_day.strip():
+                        print(f"    Warning: No data content returned for {current_date_obj.strftime(date_format)}")
+                    else:
+                        padded_xml = self.pad_hourly_to_15min(response_text_for_day)
+                        if not padded_xml:
+                            print(f"    Warning: Failed to pad XML for {current_date_obj.strftime(date_format)}")
+                        else:
+                            psr_specific_xml = self.extract_psr_data_to_xml(padded_xml, psr_name_to_extract)
+                            if not psr_specific_xml:
+                                # This is common if the PSR had no data on a particular day
+                                pass
+                            else:
+                                daily_numpy_array = self.psr_xml_to_numpy(psr_specific_xml)
+                                if daily_numpy_array is not None and daily_numpy_array.size > 0:
+                                    daily_numpy_array[:, 0] += total_points_processed
+                                    all_daily_numpy_arrays.append(daily_numpy_array)
+                                    total_points_processed += daily_numpy_array.shape[0]
+                                    print(
+                                        f"    Successfully processed {daily_numpy_array.shape[0]} points for {current_date_obj.strftime(date_format)}.")
+                                else:
+                                    print(
+                                        f"    Warning: No NumPy data extracted for {psr_name_to_extract} on {current_date_obj.strftime(date_format)}")
+                except Exception as processing_err:
+                    print(
+                        f"    Error processing XML data for {current_date_obj.strftime(date_format)}: {processing_err}")
+            else:
                 print(
-                    f"    HTTP error occurred for {current_date_obj.strftime(date_format)}: {http_err} - Response: {response.text[:200] if response else 'No response'}")
-            except requests.exceptions.RequestException as req_err:
-                print(f"    Request error occurred for {current_date_obj.strftime(date_format)}: {req_err}")
-            except Exception as e:
-                print(f"    An unexpected error occurred during processing for {current_date_obj.strftime(date_format)}: {e}")
+                    f"    No API response text to process for {current_date_obj.strftime(date_format)} after attempts.")
 
+            # --- Increment date and politeness sleep ---
             current_date_obj += timedelta(days=1)
-            if current_date_obj <= end_date_loop_obj:  # Only sleep if there are more requests
-                time.sleep(1)  # Be polite to the API server, wait 1 second between requests
+            if current_date_obj <= end_date_loop_obj:
+                time.sleep(self.GENERAL_POLITENESS_SECONDS)
 
         if not all_daily_numpy_arrays:
             print(f"No data successfully processed for '{psr_name_to_extract}' in the given date range.")
             return None
 
-        # Concatenate all daily NumPy arrays into one large array
         final_combined_array = np.concatenate(all_daily_numpy_arrays, axis=0)
-
         print(f"Successfully fetched and combined data. Total points: {final_combined_array.shape[0]}")
         return final_combined_array
     # </editor-fold>

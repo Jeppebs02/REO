@@ -35,22 +35,26 @@ EEP = EntsoeDataProcessor(os.getenv("API_KEY"))
 
 # Variables
 # Dates are in YYYY-MM-DD format
-start_date = "2024-01-01"
-end_date = "2025-05-24"
+start_date1 = "2023-01-01"
+end_date1 = "2025-05-24"
+
+start_date2 = "2024-12-07"
+end_date2 = "2025-05-24"
+
 domain_eic = "10Y1001A1001A796"
 psr_name_1 = "Solar Park Gedmosen"
 psr_name_2 = "Solar Park Holsted"
 
 # --- Configuration for PSR 1 ---
 
-gedmosen_csv_filename = f"{psr_name_1.replace(' ', '_')}_{start_date}_to_{end_date}.csv"
+gedmosen_csv_filename = f"{psr_name_1.replace(' ', '_')}_{start_date1}_to_{end_date1}.csv"
 
 gedmosen_np_array = load_numpy_from_npy(gedmosen_csv_filename)
 if gedmosen_np_array is None:
     print(f"No local data found for {psr_name_1}. Fetching from API...")
     gedmosen_np_array = EEP.fetch_and_process_psr_data_range(
-        overall_start_date_str=start_date,
-        overall_end_date_str=end_date,
+        overall_start_date_str=start_date1,
+        overall_end_date_str=end_date1,
         domain_eic=domain_eic,
         psr_name_to_extract=psr_name_1
         # time_hour_minute parameter defaults to "2200" in the class method
@@ -74,15 +78,15 @@ print("\nSleeping for a few seconds before next PSR (if fetching)...")
 sleep(5) # Reduced sleep for testing when data might be local
 
 # --- Configuration for PSR 2 ---
-psr_name_2 = "Solar Park Holsted"
-holsted_csv_filename = f"{psr_name_2.replace(' ', '_')}_{start_date}_to_{end_date}.csv"
+
+holsted_csv_filename = f"{psr_name_2.replace(' ', '_')}_{start_date1}_to_{end_date1}.csv"
 
 holsted_np_array = load_numpy_from_npy(holsted_csv_filename)
 if holsted_np_array is None:
     print(f"No local data found for {psr_name_2}. Fetching from API...")
     holsted_np_array = EEP.fetch_and_process_psr_data_range(
-        overall_start_date_str=start_date,
-        overall_end_date_str=end_date,
+        overall_start_date_str=start_date2,
+        overall_end_date_str=end_date2,
         domain_eic=domain_eic,
         psr_name_to_extract=psr_name_2
     )
