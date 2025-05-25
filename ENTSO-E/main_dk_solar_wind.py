@@ -25,6 +25,24 @@ def load_numpy_from_npy(filepath: str) -> np.ndarray | None:
             return None
     return None
 
+
+def get_actual_date_strings_for_filename(array_data: np.ndarray) -> tuple[str, str] | None:
+    if array_data is None or array_data.ndim != 2 or array_data.shape[0] == 0 or array_data.shape[1] < 1:
+        return None
+    try:
+        # First column, first row, first 8 chars (YYYYMMDD)
+        start_yyyymmdd = str(array_data[0, 0])[:8]
+        # First column, last row, first 8 chars (YYYYMMDD)
+        end_yyyymmdd = str(array_data[-1, 0])[:8]
+
+        # Format to YYYY-MM-DD
+        actual_start_date_str = f"{start_yyyymmdd[:4]}-{start_yyyymmdd[4:6]}-{start_yyyymmdd[6:8]}"
+        actual_end_date_str = f"{end_yyyymmdd[:4]}-{end_yyyymmdd[4:6]}-{end_yyyymmdd[6:8]}"
+        return actual_start_date_str, actual_end_date_str
+    except Exception as e:
+        print(f"Error extracting date strings from array: {e}")
+        return None
+
 # </editor-fold>
 
 
@@ -43,36 +61,149 @@ end_date2 = "2025-05-24"
 
 domain_eic = "10Y1001A1001A796"
 psr_name_1 = "Anholt"
-psr_name_2 = "DK_KF_AB_GU"
-psr_name_3 = "Horns Rev C"
+psr_name_3 = "DK_KF_AB_GU"
+psr_name_2 = "Horns Rev C"
 psr_name_4 = "Gedmosen"
 psr_name_5 = "Holsted"
 
+
 # --- Configuration for PSR 1 ---
-
-gedmosen_csv_filename = f"{psr_name_1.replace(' ', '_')}_{start_date1}_to_{end_date1}.csv"
-
-gedmosen_np_array = load_numpy_from_npy(gedmosen_csv_filename)
-if gedmosen_np_array is None:
+anholt_csv_filename = f"{psr_name_1.replace(' ', '_')}_{start_date1}_to_{end_date1}.npy"
+anholt_np_array = load_numpy_from_npy(anholt_csv_filename)
+if anholt_np_array is None:
     print(f"No local data found for {psr_name_1}. Fetching from API...")
-    gedmosen_np_array = EEP.fetch_and_process_psr_data_range(
+    anholt_np_array = EEP.fetch_and_process_psr_data_range(
         overall_start_date_str=start_date1,
         overall_end_date_str=end_date1,
         domain_eic=domain_eic,
         psr_name_to_extract=psr_name_1
         # time_hour_minute parameter defaults to "2200" in the class method
     )
-    if gedmosen_np_array is not None:
-        save_numpy_to_npy(gedmosen_csv_filename, gedmosen_np_array)
+    if anholt_np_array is not None:
+        actual_dates_anholt = get_actual_date_strings_for_filename(anholt_np_array)
+        if actual_dates_anholt:
+            actual_start_str_anholt, actual_end_str_anholt = actual_dates_anholt
+            filename_to_save = f"{psr_name_1.replace(' ', '_')}_{actual_start_str_anholt}_to_{actual_end_str_anholt}.npy"
+            print(f"Actual dates for {psr_name_1}: {start_date1} to {end_date1}")
+        else:
+            print(f"Could not extract actual dates for {psr_name_1}. Using original dates.")
+
+        save_numpy_to_npy(filename_to_save, anholt_np_array)
     else:
         print(f"Failed to fetch data for {psr_name_1}.")
 
-if gedmosen_np_array is not None:
+if anholt_np_array is not None:
     print(f"\nData for {psr_name_1}:")
+    print(f"Shape: {anholt_np_array.shape}")
+    # print(anholt_np_array[:5]) # Print first 5 rows
+else:
+    print(f"Could not obtain data for {psr_name_1}.")
+
+print("\nSleeping for a few seconds before next PSR (if fetching)...")
+sleep(5)  # Reduced sleep for testing when data might be local
+
+# --- Configuration for PSR 2 ---
+horns_rev_c_csv_filename = f"{psr_name_2.replace(' ', '_')}_{start_date1}_to_{end_date1}.npy"
+horns_rev_c_np_array = load_numpy_from_npy(horns_rev_c_csv_filename)
+if horns_rev_c_np_array is None:
+    print(f"No local data found for {psr_name_2}. Fetching from API...")
+    horns_rev_c_np_array = EEP.fetch_and_process_psr_data_range(
+        overall_start_date_str=start_date1,
+        overall_end_date_str=end_date1,
+        domain_eic=domain_eic,
+        psr_name_to_extract=psr_name_2
+        # time_hour_minute parameter defaults to "2200" in the class method
+    )
+    if horns_rev_c_np_array is not None:
+        actual_dates_horns_rev_c = get_actual_date_strings_for_filename(horns_rev_c_np_array)
+        if actual_dates_horns_rev_c:
+            actual_start_str_horns_rev_c, actual_end_str_horns_rev_c = actual_dates_horns_rev_c
+            filename_to_save = f"{psr_name_2.replace(' ', '_')}_{actual_start_str_horns_rev_c}_to_{actual_end_str_horns_rev_c}.npy"
+            print(f"Actual dates for {psr_name_1}: {start_date1} to {end_date1}")
+        else:
+            print(f"Could not extract actual dates for {psr_name_1}. Using original dates.")
+
+        save_numpy_to_npy(filename_to_save, horns_rev_c_np_array)
+    else:
+        print(f"Failed to fetch data for {psr_name_2}.")
+
+if horns_rev_c_np_array is not None:
+    print(f"\nData for {psr_name_2}:")
+    print(f"Shape: {horns_rev_c_np_array.shape}")
+    # print(horns_rev_c_np_array[:5]) # Print first 5 rows
+else:
+    print(f"Could not obtain data for {psr_name_2}.")
+
+print("\nSleeping for a few seconds before next PSR (if fetching)...")
+sleep(5)  # Reduced sleep for testing when data might be local
+
+# --- Configuration for PSR 3 ---
+dk_kf_ab_gu_csv_filename = f"{psr_name_3.replace(' ', '_')}_{start_date1}_to_{end_date1}.npy"
+dk_kf_ab_gu_np_array = load_numpy_from_npy(dk_kf_ab_gu_csv_filename)
+if dk_kf_ab_gu_np_array is None:
+    print(f"No local data found for {psr_name_3}. Fetching from API...")
+    dk_kf_ab_gu_np_array = EEP.fetch_and_process_psr_data_range(
+        overall_start_date_str=start_date1,
+        overall_end_date_str=end_date1,
+        domain_eic=domain_eic,
+        psr_name_to_extract=psr_name_3
+        # time_hour_minute parameter defaults to "2200" in the class method
+    )
+    if dk_kf_ab_gu_np_array is not None:
+        actual_dates_dk_kf_ab_gu_np = get_actual_date_strings_for_filename(dk_kf_ab_gu_np_array)
+        if actual_dates_dk_kf_ab_gu_np:
+            actual_start_str_dk_kf_ab_gu_np, actual_end_str_dk_kf_ab_gu_np = actual_dates_dk_kf_ab_gu_np
+            filename_to_save = f"{psr_name_3.replace(' ', '_')}_{actual_start_str_dk_kf_ab_gu_np}_to_{actual_end_str_dk_kf_ab_gu_np}.npy"
+            print(f"Actual dates for {psr_name_1}: {start_date1} to {end_date1}")
+        else:
+            print(f"Could not extract actual dates for {psr_name_1}. Using original dates.")
+
+        save_numpy_to_npy(filename_to_save, dk_kf_ab_gu_np_array)
+    else:
+        print(f"Failed to fetch data for {psr_name_3}.")
+
+
+if dk_kf_ab_gu_np_array is not None:
+    print(f"\nData for {psr_name_3}:")
+    print(f"Shape: {dk_kf_ab_gu_np_array.shape}")
+    # print(dk_kf_ab_gu_np_array[:5]) # Print first 5 rows
+else:
+    print(f"Could not obtain data for {psr_name_3}.")
+
+# --- Configuration for PSR 4 ---
+
+gedmosen_csv_filename = f"{psr_name_4.replace(' ', '_')}_{start_date1}_to_{end_date1}.npy"
+
+gedmosen_np_array = load_numpy_from_npy(gedmosen_csv_filename)
+if gedmosen_np_array is None:
+    print(f"No local data found for {psr_name_4}. Fetching from API...")
+    gedmosen_np_array = EEP.fetch_and_process_psr_data_range(
+        overall_start_date_str=start_date1,
+        overall_end_date_str=end_date1,
+        domain_eic=domain_eic,
+        psr_name_to_extract=psr_name_4
+        # time_hour_minute parameter defaults to "2200" in the class method
+    )
+    if gedmosen_np_array is not None:
+
+        actual_dates_gedmosen= get_actual_date_strings_for_filename(gedmosen_np_array)
+        if actual_dates_gedmosen:
+            actual_start_str_gedmosen, actual_end_str_gedmosen = actual_dates_gedmosen
+            filename_to_save = f"{psr_name_4.replace(' ', '_')}_{actual_start_str_gedmosen}_to_{actual_end_str_gedmosen}.npy"
+            print(f"Actual dates for {psr_name_1}: {start_date1} to {end_date1}")
+        else:
+            print(f"Could not extract actual dates for {psr_name_1}. Using original dates.")
+
+        save_numpy_to_npy(filename_to_save, gedmosen_np_array)
+    else:
+        print(f"Failed to fetch data for {psr_name_4}.")
+
+if gedmosen_np_array is not None:
+    print(f"\nData for {psr_name_4}:")
     print(f"Shape: {gedmosen_np_array.shape}")
     # print(gedmosen_np_array[:5]) # Print first 5 rows
 else:
-    print(f"Could not obtain data for {psr_name_1}.")
+    print(f"Could not obtain data for {psr_name_4}.")
 
 
 print("\nSleeping for a few seconds before next PSR (if fetching)...")
@@ -80,36 +211,43 @@ print("\nSleeping for a few seconds before next PSR (if fetching)...")
 # If data is loaded from CSV, no API call is made.
 sleep(5) # Reduced sleep for testing when data might be local
 
-# --- Configuration for PSR 2 ---
+# --- Configuration for PSR 5 ---
 
-holsted_csv_filename = f"{psr_name_2.replace(' ', '_')}_{start_date1}_to_{end_date1}.csv"
+holsted_csv_filename = f"{psr_name_5.replace(' ', '_')}_{start_date1}_to_{end_date1}.npy"
 
 holsted_np_array = load_numpy_from_npy(holsted_csv_filename)
 if holsted_np_array is None:
-    print(f"No local data found for {psr_name_2}. Fetching from API...")
+    print(f"No local data found for {psr_name_5}. Fetching from API...")
     holsted_np_array = EEP.fetch_and_process_psr_data_range(
-        overall_start_date_str=start_date2,
-        overall_end_date_str=end_date2,
+        overall_start_date_str=start_date1,
+        overall_end_date_str=end_date1,
         domain_eic=domain_eic,
-        psr_name_to_extract=psr_name_2
+        psr_name_to_extract=psr_name_5
     )
     if holsted_np_array is not None:
-        save_numpy_to_npy(holsted_csv_filename, holsted_np_array)
+
+        actual_dates_holsted= get_actual_date_strings_for_filename(holsted_np_array)
+        if actual_dates_holsted:
+            actual_start_str_holsted, actual_end_str_holsted = actual_dates_holsted
+            filename_to_save = f"{psr_name_5.replace(' ', '_')}_{actual_start_str_holsted}_to_{actual_end_str_holsted}.npy"
+            print(f"Actual dates for {psr_name_1}: {start_date1} to {end_date1}")
+        else:
+            print(f"Could not extract actual dates for {psr_name_1}. Using original dates.")
+
+        save_numpy_to_npy(filename_to_save, holsted_np_array)
     else:
-        print(f"Failed to fetch data for {psr_name_2}.")
+        print(f"Failed to fetch data for {psr_name_5}.")
 
 if holsted_np_array is not None:
-    print(f"\nData for {psr_name_2}:")
+    print(f"\nData for {psr_name_5}:")
     print(f"Shape: {holsted_np_array.shape}")
     # print(holsted_np_array[:5]) # Print first 5 rows
 else:
-    print(f"Could not obtain data for {psr_name_2}.")
+    print(f"Could not obtain data for {psr_name_5}.")
 
 
-if gedmosen_np_array is not None and holsted_np_array is not None:
-    print("\nArrays for all requested PSRs obtained (either fetched or loaded).")
-else:
-    print("\nCould not obtain data for one or more PSRs.")
+
+
 
 
 

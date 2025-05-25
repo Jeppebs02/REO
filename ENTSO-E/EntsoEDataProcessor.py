@@ -180,26 +180,25 @@ class EntsoeDataProcessor:
     def psr_xml_to_numpy(self, psr_xml_string: str) -> np.ndarray | None:
         """
         Converts a padded and extracted PSR XML string (containing a single TimeSeries)
-        into a 2D NumPy array where each row is [position, quantity].
+        into a 2D NumPy array where each row is [YYYYMMDDHH_string, quantity].
 
         Args:
             psr_xml_string: An XML string containing the data for a single
                             Power System Resource. It's assumed this XML
-                            has one TimeSeries element.
+                            has one TimeSeries element and that the points
+                            represent 15-minute intervals (due to prior padding).
 
         Returns:
-            A 2D NumPy array with columns for 'position' and 'quantity',
+            A 2D NumPy array with columns for 'YYYYMMDDHH' and 'quantity',
             or None if parsing fails, no TimeSeries is found, or no Points are found.
-            The dtype of the array will be float to accommodate quantities.
+            The dtype of the array will be object.
         """
         try:
             root = ET.fromstring(psr_xml_string)
         except ET.ParseError as e:
-            print(f"XML Parsing Error: {e}")
+            print(f"XML Parsing Error in psr_xml_to_numpy: {e}")
             return None
 
-        # Find the TimeSeries element. Since the XML is pre-filtered for one PSR,
-        # there should be exactly one.
         time_series_element = root.find('.//ns:TimeSeries', self.NS)
         if time_series_element is None:
             print("Error: No TimeSeries element found in the provided XML.")
@@ -210,30 +209,65 @@ class EntsoeDataProcessor:
             print("Error: No Period element found within the TimeSeries.")
             return None
 
+        # Get the start time of the period from the XML
+        period_start_time_str_el = period_element.find('.//ns:timeInterval/ns:start', self.NS)
+        if period_start_time_str_el is None or not period_start_time_str_el.text:
+            print("Error: Could not find or parse <Period><timeInterval><start> from XML.")
+            return None
+
+        try:
+            # Parse the ISO 8601 datetime string. Example: "2025-03-11T22:00Z"
+            # The 'Z' indicates UTC. Python's fromisoformat handles this directly
+            # if the 'Z' is replaced by '+00:00' or if it's Python 3.11+
+            # For broader compatibility, let's handle 'Z' explicitly.
+            period_start_time_str = period_start_time_str_el.text
+            if period_start_time_str.endswith('Z'):
+                period_start_time_str = period_start_time_str[:-1] + "+00:00"
+            period_start_datetime = datetime.fromisoformat(period_start_time_str)
+        except ValueError as e:
+            print(f"Error: Could not parse period start datetime string '{period_start_time_str_el.text}': {e}")
+            return None
+
         points_data = []
+        # The 'position' from the Point element is for the 15-minute intervals
+        # after padding. It will range from 1 to 96 for a 24-hour period.
         for point_element in period_element.findall('ns:Point', self.NS):
             position_el = point_element.find('ns:position', self.NS)
             quantity_el = point_element.find('ns:quantity', self.NS)
 
             if position_el is not None and quantity_el is not None:
                 try:
-                    position = int(position_el.text)
-                    quantity = float(quantity_el.text)  # Use float for quantity
-                    points_data.append([position, quantity])
+                    point_position_15min = int(position_el.text)  # 1-based index for 15-min interval
+                    quantity = float(quantity_el.text)
+
+                    # Calculate which hour this 15-minute interval belongs to.
+                    # (point_position_15min - 1) makes it 0-indexed.
+                    # // 4 gives the 0-indexed hour offset from the period_start_datetime.
+                    hour_offset_from_period_start = (point_position_15min - 1) // 4
+
+                    # Calculate the actual start datetime of the hour for this point
+                    actual_hour_start_dt = period_start_datetime + timedelta(hours=hour_offset_from_period_start)
+
+                    # Format this datetime as YYYYMMDDHH
+                    formatted_timestamp = actual_hour_start_dt.strftime("%Y%m%d%H")
+
+                    points_data.append([formatted_timestamp, quantity])
+
                 except (ValueError, TypeError) as e:
                     print(
-                        f"Warning: Could not parse point data: {position_el.text}, {quantity_el.text}. Error: {e}. Skipping point.")
-                    continue  # Skip this point if parsing fails
+                        f"Warning: Could not parse point data: pos='{position_el.text}', qty='{quantity_el.text}'. Error: {e}. Skipping point.")
+                    continue
             else:
                 print("Warning: Point element missing position or quantity. Skipping point.")
 
         if not points_data:
-            print("No valid points found to create a NumPy array.")
+            # print("No valid points found to create a NumPy array.") # Can be noisy
             return None
 
         # Convert the list of lists to a NumPy array
-        # Using float as dtype to accommodate potential float quantities
-        numpy_array = np.array(points_data, dtype=float)
+        # Using dtype=object because the first column is a string (timestamp)
+        # and the second is a float (quantity).
+        numpy_array = np.array(points_data, dtype=object)
 
         return numpy_array
     # </editor-fold>
@@ -272,7 +306,7 @@ class EntsoeDataProcessor:
 
             print(f"  Querying for date: {current_date_obj.strftime(date_format)}")  # Removed URL from this print
 
-            max_api_retries = 2  # Max retries for 429 or network issues
+            max_api_retries = 10  # Max retries for 429 or network issues
             api_attempt = 0
             response_text_for_day = None  # Store successful response text here
 
@@ -303,7 +337,7 @@ class EntsoeDataProcessor:
                 try:
                     print(
                         f"    Attempting API request for {current_date_obj.strftime(date_format)} (attempt {api_attempt + 1})...")
-                    response = requests.request("GET", url, headers={}, data={}, timeout=30)
+                    response = requests.request("GET", url, headers={}, data={}, timeout=305)
                     self.request_count_this_minute += 1
                     print(
                         f"    Request count this minute: {self.request_count_this_minute} (Limit: {self.MAX_REQUESTS_PER_MINUTE - self.RATE_LIMIT_BUFFER})")
@@ -354,7 +388,8 @@ class EntsoeDataProcessor:
                             else:
                                 daily_numpy_array = self.psr_xml_to_numpy(psr_specific_xml)
                                 if daily_numpy_array is not None and daily_numpy_array.size > 0:
-                                    daily_numpy_array[:, 0] += total_points_processed
+                                    # DO NOT UNCOMMENT THE NEXT LINE
+                                    # daily_numpy_array[:, 0] += total_points_processed
                                     all_daily_numpy_arrays.append(daily_numpy_array)
                                     total_points_processed += daily_numpy_array.shape[0]
                                     print(
