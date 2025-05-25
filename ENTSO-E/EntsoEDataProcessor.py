@@ -369,7 +369,7 @@ class EntsoeDataProcessor:
                     if api_attempt > max_api_retries:
                         print(f"    Max retries for Network error reached. Skipping this date.")
                     else:
-                        time.sleep(5)  # Wait before retrying network error
+                        time.sleep(30)  # Wait before retrying network error
 
             # --- Process the response if successfully fetched ---
             if response_text_for_day:
