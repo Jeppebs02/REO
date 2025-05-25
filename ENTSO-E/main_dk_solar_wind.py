@@ -35,15 +35,18 @@ EEP = EntsoeDataProcessor(os.getenv("API_KEY"))
 
 # Variables
 # Dates are in YYYY-MM-DD format
-start_date1 = "2023-01-01"
+start_date1 = "2020-01-01"
 end_date1 = "2025-05-24"
 
 start_date2 = "2024-12-07"
 end_date2 = "2025-05-24"
 
 domain_eic = "10Y1001A1001A796"
-psr_name_1 = "Solar Park Gedmosen"
-psr_name_2 = "Solar Park Holsted"
+psr_name_1 = "Anholt"
+psr_name_2 = "DK_KF_AB_GU"
+psr_name_3 = "Horns Rev C"
+psr_name_4 = "Gedmosen"
+psr_name_5 = "Holsted"
 
 # --- Configuration for PSR 1 ---
 
