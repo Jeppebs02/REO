@@ -12,6 +12,10 @@ class EntsoeDataProcessor:
     # Namespace map for use with find/findall
     NS = {'ns': NAMESPACE_URI}
 
+    #Logging
+    SKIPPED_DATES_LOG_FILE = "skipped_dates.log"
+
+
     # Rate Limiting Constants
     MAX_REQUESTS_PER_MINUTE = 400
     RATE_LIMIT_BUFFER = 10  # Start sleeping when count reaches MAX_REQUESTS_PER_MINUTE - RATE_LIMIT_BUFFER
@@ -27,6 +31,21 @@ class EntsoeDataProcessor:
         self.request_count_this_minute = 0
         self.minute_window_start_time = datetime.now()
 
+
+# <editor-fold desc="Helper functions">
+
+    def log_skipped_date(self, psr_name: str, date_obj: datetime, reason: str):
+        """Appends a skipped date entry to the log file."""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"{timestamp} - SKIPPED: PSR='{psr_name}', Date='{date_obj.strftime('%Y-%m-%d')}', Reason='{reason}'\n"
+        try:
+            with open(self.SKIPPED_DATES_LOG_FILE, "a") as f:  # "a" for append mode
+                f.write(log_entry)
+            print(f"    Logged skipped date to {self.SKIPPED_DATES_LOG_FILE}")
+        except Exception as e:
+            print(f"    ERROR: Could not write to log file {self.SKIPPED_DATES_LOG_FILE}: {e}")
+
+#</editor-fold>
 
 
     # <editor-fold desc="pad_hourly_to_15min">
@@ -309,6 +328,7 @@ class EntsoeDataProcessor:
             max_api_retries = 10  # Max retries for 429 or network issues
             api_attempt = 0
             response_text_for_day = None  # Store successful response text here
+            date_skipped_for_psr = False
 
             while api_attempt <= max_api_retries:
                 # --- Rate Limiting Check (before each attempt) ---
@@ -344,6 +364,7 @@ class EntsoeDataProcessor:
 
                     response.raise_for_status()
                     response_text_for_day = response.text
+                    date_skipped_for_psr = False
                     break  # API call successful, exit retry loop
 
                 except requests.exceptions.HTTPError as http_err:
@@ -356,34 +377,43 @@ class EntsoeDataProcessor:
                         if api_attempt > max_api_retries:
                             print(
                                 f"    Max retries for 429 reached for date {current_date_obj.strftime(date_format)}. Skipping this date.")
+                            self.log_skipped_date(psr_name_to_extract, current_date_obj, "Max retries for HTTP 429")
+                            date_skipped_for_psr = True
                         # Continue to next attempt or break if maxed out
                     else:
                         error_status = http_err.response.status_code if http_err.response is not None else "Unknown"
                         print(
                             f"    HTTP error ({error_status}) for {current_date_obj.strftime(date_format)}: {http_err}")
                         response_text_for_day = None
+                        self.log_skipped_date(psr_name_to_extract, current_date_obj, f"HTTP error {error_status}")
+                        date_skipped_for_psr = True
                         break  # Break from API retry loop for other HTTP errors
                 except requests.exceptions.RequestException as req_err:  # Network errors
                     print(f"    Network error for {current_date_obj.strftime(date_format)}: {req_err}")
                     api_attempt += 1
                     if api_attempt > max_api_retries:
                         print(f"    Max retries for Network error reached. Skipping this date.")
+                        self.log_skipped_date(psr_name_to_extract, current_date_obj, f"Max retries for Network error ({type(req_err).__name__})")
+                        date_skipped_for_psr = True
                     else:
                         time.sleep(30)  # Wait before retrying network error
 
             # --- Process the response if successfully fetched ---
-            if response_text_for_day:
+            if not date_skipped_for_psr and response_text_for_day:
                 try:
                     if not response_text_for_day.strip():
                         print(f"    Warning: No data content returned for {current_date_obj.strftime(date_format)}")
+                        self.log_skipped_date(psr_name_to_extract, current_date_obj, "No data content returned")
                     else:
                         padded_xml = self.pad_hourly_to_15min(response_text_for_day)
                         if not padded_xml:
                             print(f"    Warning: Failed to pad XML for {current_date_obj.strftime(date_format)}")
+                            self.log_skipped_date(psr_name_to_extract, current_date_obj, "Failed to pad XML")
                         else:
                             psr_specific_xml = self.extract_psr_data_to_xml(padded_xml, psr_name_to_extract)
                             if not psr_specific_xml:
                                 # This is common if the PSR had no data on a particular day
+                                self.log_skipped_date(psr_name_to_extract, current_date_obj, f"PSR '{psr_name_to_extract}' not found in daily XML")
                                 pass
                             else:
                                 daily_numpy_array = self.psr_xml_to_numpy(psr_specific_xml)
@@ -397,12 +427,16 @@ class EntsoeDataProcessor:
                                 else:
                                     print(
                                         f"    Warning: No NumPy data extracted for {psr_name_to_extract} on {current_date_obj.strftime(date_format)}")
+                                    self.log_skipped_date(psr_name_to_extract, current_date_obj, "No NumPy data extracted from PSR-specific XML")
                 except Exception as processing_err:
                     print(
                         f"    Error processing XML data for {current_date_obj.strftime(date_format)}: {processing_err}")
-            else:
+                    self.log_skipped_date(psr_name_to_extract, current_date_obj, f"Error during XML processing: {processing_err}")
+
+            elif not date_skipped_for_psr and not response_text_for_day:
                 print(
                     f"    No API response text to process for {current_date_obj.strftime(date_format)} after attempts.")
+                self.log_skipped_date(psr_name_to_extract, current_date_obj, "No API response after all retries (unspecified reason)")
 
             # --- Increment date and politeness sleep ---
             current_date_obj += timedelta(days=1)
