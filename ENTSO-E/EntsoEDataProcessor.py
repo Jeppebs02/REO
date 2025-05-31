@@ -196,98 +196,152 @@ class EntsoeDataProcessor:
 
     # <editor-fold desc="Single PSR XML to Numpy Array">
     #VERY IMPORTANT, THIS FUNCTION ASSUMES THAT THERE IS ONLY ONE PSR IN THE XML DOCUMENT
-    def psr_xml_to_numpy(self, psr_xml_string: str) -> np.ndarray | None:
+    def psr_xml_to_numpy(self, psr_xml_string: str) -> np.ndarray | None:  # Removed extra logging params
         """
-        Converts a padded and extracted PSR XML string (containing a single TimeSeries)
-        into a 2D NumPy array where each row is [YYYYMMDDHH_string, quantity].
+        Converts XML to NumPy. If point quantity parsing fails, sets quantity to np.nan and logs.
+        Logs errors if the entire conversion fails or critical XML parts are missing.
+        PSR name and date for logging are extracted from the XML string.
 
         Args:
-            psr_xml_string: An XML string containing the data for a single
-                            Power System Resource. It's assumed this XML
-                            has one TimeSeries element and that the points
-                            represent 15-minute intervals (due to prior padding).
+            psr_xml_string: An XML string containing the data for a single PSR.
+                            It's assumed this XML has one TimeSeries element.
 
         Returns:
-            A 2D NumPy array with columns for 'YYYYMMDDHH' and 'quantity',
-            or None if parsing fails, no TimeSeries is found, or no Points are found.
-            The dtype of the array will be object.
+            A 2D NumPy array or None if critical parsing fails or no valid points are found.
         """
+        psr_name_for_logging = "UNKNOWN_PSR"  # Default if not found in XML
+        date_obj_for_logging = datetime.now()  # Default to now, will be overwritten
+        period_start_datetime_for_calc = None  # For calculating point timestamps
+
         try:
             root = ET.fromstring(psr_xml_string)
         except ET.ParseError as e:
-            print(f"XML Parsing Error in psr_xml_to_numpy: {e}")
+            error_msg = f"XML Parsing Error in psr_xml_to_numpy: {e}"
+            print(error_msg)
+            # Cannot reliably get psr_name or date if XML parsing fails at root level
+            self.log_skipped_date(psr_name_for_logging, date_obj_for_logging, error_msg)
             return None
+
+        # Attempt to extract PSR Name for logging from the XML
+        name_element_for_log = root.find('.//ns:TimeSeries/ns:MktPSRType/ns:PowerSystemResources/ns:name', self.NS)
+        if name_element_for_log is not None and name_element_for_log.text:
+            psr_name_for_logging = name_element_for_log.text
+        else:
+            print(f"Warning: Could not extract PSR name for logging from XML.")
+            # Continue, but logging will use "UNKNOWN_PSR"
 
         time_series_element = root.find('.//ns:TimeSeries', self.NS)
         if time_series_element is None:
-            print("Error: No TimeSeries element found in the provided XML.")
+            error_msg = "No TimeSeries element found in the provided XML."
+            print(f"Error for {psr_name_for_logging}: {error_msg}")
+            self.log_skipped_date(psr_name_for_logging, date_obj_for_logging,
+                                  error_msg)  # date_obj_for_logging might still be 'now'
             return None
 
         period_element = time_series_element.find('.//ns:Period', self.NS)
         if period_element is None:
-            print("Error: No Period element found within the TimeSeries.")
+            error_msg = "No Period element found within the TimeSeries."
+            print(f"Error for {psr_name_for_logging}: {error_msg}")
+            self.log_skipped_date(psr_name_for_logging, date_obj_for_logging, error_msg)
             return None
 
-        # Get the start time of the period from the XML
         period_start_time_str_el = period_element.find('.//ns:timeInterval/ns:start', self.NS)
         if period_start_time_str_el is None or not period_start_time_str_el.text:
-            print("Error: Could not find or parse <Period><timeInterval><start> from XML.")
+            error_msg = "Could not find or parse <Period><timeInterval><start> from XML."
+            print(f"Error for {psr_name_for_logging}: {error_msg}")
+            self.log_skipped_date(psr_name_for_logging, date_obj_for_logging, error_msg)
             return None
 
         try:
-            # Parse the ISO 8601 datetime string. Example: "2025-03-11T22:00Z"
-            # The 'Z' indicates UTC. Python's fromisoformat handles this directly
-            # if the 'Z' is replaced by '+00:00' or if it's Python 3.11+
-            # For broader compatibility, let's handle 'Z' explicitly.
             period_start_time_str = period_start_time_str_el.text
             if period_start_time_str.endswith('Z'):
                 period_start_time_str = period_start_time_str[:-1] + "+00:00"
-            period_start_datetime = datetime.fromisoformat(period_start_time_str)
+            # This datetime is crucial for point timestamp calculation AND for logging
+            period_start_datetime_for_calc = datetime.fromisoformat(period_start_time_str)
+            date_obj_for_logging = period_start_datetime_for_calc  # Use this for logging
         except ValueError as e:
-            print(f"Error: Could not parse period start datetime string '{period_start_time_str_el.text}': {e}")
+            error_msg = f"Could not parse period start datetime string '{period_start_time_str_el.text}': {e}"
+            print(f"Error for {psr_name_for_logging}: {error_msg}")
+            self.log_skipped_date(psr_name_for_logging, date_obj_for_logging,
+                                  error_msg)  # date_obj_for_logging might still be 'now'
             return None
 
         points_data = []
-        # The 'position' from the Point element is for the 15-minute intervals
-        # after padding. It will range from 1 to 96 for a 24-hour period.
+        fixed_points_count = 0
+        total_points_in_xml = 0
+
         for point_element in period_element.findall('ns:Point', self.NS):
+            total_points_in_xml += 1
             position_el = point_element.find('ns:position', self.NS)
             quantity_el = point_element.find('ns:quantity', self.NS)
 
-            if position_el is not None and quantity_el is not None:
+            formatted_timestamp = "UNKNOWN_TIMESTAMP"
+            point_position_15min_text = "N/A"
+
+            if position_el is not None and position_el.text is not None:
+                point_position_15min_text = position_el.text
                 try:
-                    point_position_15min = int(position_el.text)  # 1-based index for 15-min interval
-                    quantity = float(quantity_el.text)
-
-                    # Calculate which hour this 15-minute interval belongs to.
-                    # (point_position_15min - 1) makes it 0-indexed.
-                    # // 4 gives the 0-indexed hour offset from the period_start_datetime.
+                    point_position_15min = int(position_el.text)
                     hour_offset_from_period_start = (point_position_15min - 1) // 4
-
-                    # Calculate the actual start datetime of the hour for this point
-                    actual_hour_start_dt = period_start_datetime + timedelta(hours=hour_offset_from_period_start)
-
-                    # Format this datetime as YYYYMMDDHH
+                    actual_hour_start_dt = period_start_datetime_for_calc + timedelta(
+                        hours=hour_offset_from_period_start)
                     formatted_timestamp = actual_hour_start_dt.strftime("%Y%m%d%H")
+                except (ValueError, TypeError) as e:
+                    print(f"Critical Warning for {psr_name_for_logging}, {date_obj_for_logging.strftime('%Y-%m-%d')}: "
+                          f"Could not parse point position: '{position_el.text}'. Error: {e}. Skipping this entire point.")
+                    self.log_skipped_date(
+                        psr_name_for_logging,
+                        date_obj_for_logging,
+                        f"CRITICAL Point SKIPPED: Invalid position '{position_el.text}' (orig qty: {quantity_el.text if quantity_el and quantity_el.text else 'N/A'}). Cannot form timestamp."
+                    )
+                    fixed_points_count += 1
+                    continue
 
+            if quantity_el is not None and quantity_el.text is not None:
+                try:
+                    quantity = float(quantity_el.text)
                     points_data.append([formatted_timestamp, quantity])
-
                 except (ValueError, TypeError) as e:
                     print(
-                        f"Warning: Could not parse point data: pos='{position_el.text}', qty='{quantity_el.text}'. Error: {e}. Skipping point.")
-                    continue
-            else:
-                print("Warning: Point element missing position or quantity. Skipping point.")
+                        f"Warning for {psr_name_for_logging}, {date_obj_for_logging.strftime('%Y-%m-%d')} at timestamp {formatted_timestamp} (orig pos: {point_position_15min_text}): "
+                        f"Could not parse quantity: '{quantity_el.text}'. Error: {e}. Setting quantity to np.nan.")
+                    points_data.append([formatted_timestamp, np.nan])
+                    fixed_points_count += 1
+                    self.log_skipped_date(
+                        psr_name_for_logging,
+                        date_obj_for_logging,
+                        f"FIXED Point: Timestamp={formatted_timestamp} (orig pos: {point_position_15min_text}, orig qty: {quantity_el.text}) set to np.nan due to parsing error: {e}"
+                    )
+            elif position_el is not None:  # Position valid, quantity missing
+                print(
+                    f"Warning for {psr_name_for_logging}, {date_obj_for_logging.strftime('%Y-%m-%d')} at timestamp {formatted_timestamp} (orig pos: {point_position_15min_text}): "
+                    f"Quantity element missing or empty. Setting quantity to np.nan.")
+                points_data.append([formatted_timestamp, np.nan])
+                fixed_points_count += 1
+                self.log_skipped_date(
+                    psr_name_for_logging,
+                    date_obj_for_logging,
+                    f"FIXED Point: Timestamp={formatted_timestamp} (orig pos: {point_position_15min_text}) set to np.nan due to missing quantity."
+                )
+            # else: # Both position and quantity were problematic (handled by position check 'continue')
+
+        if fixed_points_count > 0:
+            self.log_skipped_date(
+                psr_name_for_logging,
+                date_obj_for_logging,
+                f"INFO: {fixed_points_count}/{total_points_in_xml} point(s) had quantity set to np.nan or were skipped due to parsing/missing data."
+            )
 
         if not points_data:
-            # print("No valid points found to create a NumPy array.") # Can be noisy
+            if total_points_in_xml == 0:
+                error_msg = "No <Point> elements found in XML Period."
+                print(f"Info for {psr_name_for_logging}, {date_obj_for_logging.strftime('%Y-%m-%d')}: {error_msg}")
+                self.log_skipped_date(psr_name_for_logging, date_obj_for_logging, error_msg)
+            # If points_data is empty but total_points_in_xml > 0, it means all points were skipped
+            # (e.g., all had bad positions), and this was already logged via fixed_points_count.
             return None
 
-        # Convert the list of lists to a NumPy array
-        # Using dtype=object because the first column is a string (timestamp)
-        # and the second is a float (quantity).
         numpy_array = np.array(points_data, dtype=object)
-
         return numpy_array
     # </editor-fold>
 
