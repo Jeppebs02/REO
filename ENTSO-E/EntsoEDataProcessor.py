@@ -505,3 +505,457 @@ class EntsoeDataProcessor:
         print(f"Successfully fetched and combined data. Total points: {final_combined_array.shape[0]}")
         return final_combined_array
     # </editor-fold>
+
+
+
+    # New functions for actual generation per production type.
+
+    # <editor-fold desc="NEW - Parse Generation per Production Type">
+    def parse_generation_per_type_to_numpy(self, xml_string: str,
+                                           production_types_in_order: list[str]) -> np.ndarray | None:
+        """
+        Parses an A75 XML string (Actual Generation per Production Type) into a 2D NumPy array.
+        The columns are ordered according to the 'production_types_in_order' list.
+
+        Args:
+            xml_string: The XML data string from the API.
+            production_types_in_order: A list of psrType codes (e.g., ['B01', 'B05'])
+                                       that defines the column order of the output array.
+
+        Returns:
+            A 2D NumPy array with 96 rows (for a 24-hour period padded to 15-min intervals)
+            and columns for each production type, or None on critical failure.
+        """
+        try:
+            root = ET.fromstring(xml_string)
+        except ET.ParseError as e:
+            print(f"XML Parsing Error in parse_generation_per_type_to_numpy: {e}")
+            return None
+
+        # Store the 24 hourly quantities for each found production type
+        data_by_type = {}
+
+        for time_series in root.findall('.//ns:TimeSeries', self.NS):
+            psr_type_el = time_series.find('.//ns:MktPSRType/ns:psrType', self.NS)
+            if psr_type_el is None or psr_type_el.text not in production_types_in_order:
+                continue  # Skip TimeSeries that aren't for the types we want
+
+            current_psr_type = psr_type_el.text
+
+            # Check resolution. We only handle PT60M for now.
+            resolution_el = time_series.find('.//ns:Period/ns:resolution', self.NS)
+            is_hourly = resolution_el is not None and resolution_el.text == 'PT60M'
+            if not is_hourly:
+                print(
+                    f"Warning: Skipping TimeSeries for {current_psr_type} due to non-hourly resolution: {resolution_el.text if resolution_el is not None else 'N/A'}")
+                continue
+
+            quantities = []
+            points = time_series.findall('.//ns:Period/ns:Point', self.NS)
+            # Create a dictionary for quick lookup of position -> quantity
+            point_map = {p.find('ns:position', self.NS).text: p.find('ns:quantity', self.NS).text for p in points if
+                         p.find('ns:position', self.NS) is not None and p.find('ns:quantity', self.NS) is not None}
+
+            # Ensure we get 24 points, substituting 0 for any missing positions
+            for i in range(1, 25):
+                quantity_str = point_map.get(str(i), "0")  # Default to "0" if position is missing
+                try:
+                    quantities.append(float(quantity_str))
+                except (ValueError, TypeError):
+                    quantities.append(0.0)  # Use 0.0 if quantity is not a valid float
+
+            data_by_type[current_psr_type] = quantities
+
+        # Assemble the final daily array with padded data and correct column order
+        num_columns = len(production_types_in_order)
+        # Create an empty array: 96 rows (24 hours * 4 quarters), N columns
+        daily_array = np.zeros((96, num_columns), dtype=float)
+
+        for col_index, psr_type in enumerate(production_types_in_order):
+            # Get the hourly data for this type, or a list of 24 zeros if not found in the XML
+            hourly_data = data_by_type.get(psr_type, [0.0] * 24)
+
+            # Pad to 15-minute intervals by repeating each value 4 times
+            padded_data = np.repeat(hourly_data, 4)
+
+            # Place the padded data into the correct column
+            daily_array[:, col_index] = padded_data
+
+        return daily_array
+
+    # </editor-fold>
+
+    # <editor-fold desc="NEW - Fetch Production by Type for Date Range">
+    def fetch_production_by_type_for_range(
+            self,
+            overall_start_date_str: str,
+            overall_end_date_str: str,
+            domain_eic: str,
+            production_types: list[str],  # The list defining the columns
+            base_api_url: str = "https://web-api.tp.entsoe.eu/api"
+    ):
+        """
+        Fetches 'Actual Generation per Production Type' (A75) for a date range
+        with robust retry and logging logic.
+
+        Args:
+            overall_start_date_str: Start date "YYYY-MM-DD".
+            overall_end_date_str: End date "YYYY-MM-DD".
+            domain_eic: The EIC code for the bidding zone (e.g., "10YDK-1--------W").
+            production_types: A list of psrType codes to extract, defining column order.
+
+        Returns:
+            A combined NumPy array for the entire period, or None if it fails.
+        """
+        date_format = "%Y-%m-%d"
+        try:
+            current_date_obj = datetime.strptime(overall_start_date_str, date_format)
+            end_date_loop_obj = datetime.strptime(overall_end_date_str, date_format)
+        except ValueError:
+            print("Error: Invalid date format. Please use yyyy-mm-dd.")
+            return None
+
+        all_daily_arrays = []
+
+        # Determine start/end time for API call. ENTSO-E days often run from 22:00 to 22:00 UTC
+        time_hour_minute = "2200"
+
+        print(f"Fetching Production by Type for {domain_eic} from {overall_start_date_str} to {overall_end_date_str}")
+
+        while current_date_obj <= end_date_loop_obj:
+            api_query_start_date = current_date_obj - timedelta(days=1)
+            period_start_formatted = api_query_start_date.strftime("%Y%m%d") + time_hour_minute
+            period_end_formatted = current_date_obj.strftime("%Y%m%d") + time_hour_minute
+
+            url = (f"{base_api_url}?documentType=A75&processType=A16"  # documentType=A75
+                   f"&in_Domain={domain_eic}"
+                   f"&periodStart={period_start_formatted}&periodEnd={period_end_formatted}"
+                   f"&securityToken={self.api_key}")
+
+            print(f"  Querying for date: {current_date_obj.strftime(date_format)}")
+
+            max_api_retries = 5  # Max retries for any single date
+            api_attempt = 0
+            response_text_for_day = None
+
+            while api_attempt <= max_api_retries:
+                # --- Rate Limiting Check (before each attempt) ---
+                now = datetime.now()
+                elapsed_since_window_start = (now - self.minute_window_start_time).total_seconds()
+
+                if elapsed_since_window_start >= self.RATE_LIMIT_WINDOW_SECONDS:
+                    print(
+                        f"    Rate limit: Minute window expired. Resetting count from {self.request_count_this_minute}.")
+                    self.request_count_this_minute = 0
+                    self.minute_window_start_time = now
+                    elapsed_since_window_start = 0
+
+                if self.request_count_this_minute >= (self.MAX_REQUESTS_PER_MINUTE - self.RATE_LIMIT_BUFFER):
+                    time_to_wait_for_next_window = self.RATE_LIMIT_WINDOW_SECONDS - elapsed_since_window_start
+                    if time_to_wait_for_next_window > 0:
+                        sleep_duration = time_to_wait_for_next_window + 1.0
+                        print(
+                            f"    Rate limit: Approaching limit ({self.request_count_this_minute} requests). Sleeping for {sleep_duration:.2f} seconds.")
+                        time.sleep(sleep_duration)
+                    self.request_count_this_minute = 0
+                    self.minute_window_start_time = datetime.now()
+
+                try:
+                    print(
+                        f"    Attempting API request for {current_date_obj.strftime(date_format)} (attempt {api_attempt + 1}/{max_api_retries + 1})...")
+                    connect_timeout = 60
+                    read_timeout = 120
+                    response = requests.request("GET", url, headers={}, data={},
+                                                timeout=(connect_timeout, read_timeout))
+
+                    self.request_count_this_minute += 1
+                    print(f"    Request count this minute: {self.request_count_this_minute}")
+
+                    response.raise_for_status()
+                    response_text_for_day = response.text
+                    break
+
+                except requests.exceptions.HTTPError as http_err:
+                    reason = f"HTTPError: {http_err.response.status_code if http_err.response else 'Unknown'}"
+                    if http_err.response is not None and http_err.response.status_code == 429:
+                        print(f"    RATE LIMIT HIT (429)! Banned for 10 minutes. Sleeping...")
+                        time.sleep(60 * 10 + 5)
+                        self.minute_window_start_time = datetime.now()
+                        self.request_count_this_minute = 0
+                        api_attempt += 1
+                        if api_attempt > max_api_retries:
+                            print(
+                                f"    Max retries for 429 reached for date {current_date_obj.strftime(date_format)}. Skipping.")
+                            # Using a generic psr_name like "Production_Type_Data" for the log
+                            self.log_skipped_date(f"Production_Type_Data-{domain_eic}", current_date_obj,
+                                                  "Max retries for HTTP 429")
+                    else:
+                        print(f"    HTTP error ({reason}) for {current_date_obj.strftime(date_format)}: {http_err}")
+                        self.log_skipped_date(f"Production_Type_Data-{domain_eic}", current_date_obj, reason)
+                        break  # Break loop for other non-retryable HTTP errors
+                except requests.exceptions.RequestException as req_err:
+                    reason = f"RequestException: {type(req_err).__name__}"
+                    print(
+                        f"    Network error for {current_date_obj.strftime(date_format)} (attempt {api_attempt + 1}): {req_err}")
+                    api_attempt += 1
+                    if api_attempt > max_api_retries:
+                        print(
+                            f"    Max retries for Network error reached for date {current_date_obj.strftime(date_format)}. Skipping.")
+                        self.log_skipped_date(f"Production_Type_Data-{domain_eic}", current_date_obj,
+                                              f"Max retries for Network error ({type(req_err).__name__})")
+                    else:
+                        base_delay = 5
+                        current_delay_exp = base_delay * (2 ** (api_attempt - 1))
+                        jitter = np.random.uniform(0, 1)
+                        sleep_duration = min(current_delay_exp + jitter, 120)
+                        print(f"    Waiting {sleep_duration:.2f} seconds before retrying network error...")
+                        time.sleep(sleep_duration)
+
+            # --- Process the response if successfully fetched ---
+            if response_text_for_day:
+                daily_array = self.parse_generation_per_type_to_numpy(response_text_for_day, production_types)
+                if daily_array is not None:
+                    all_daily_arrays.append(daily_array)
+                    print(f"    Successfully processed data for {current_date_obj.strftime(date_format)}.")
+                else:
+                    # Parsing failed, log this and append zeros to maintain structure
+                    print(
+                        f"    Warning: Parsing failed for {current_date_obj.strftime(date_format)}. Appending a block of zeros.")
+                    self.log_skipped_date(f"Production_Type_Data-{domain_eic}", current_date_obj,
+                                          "Failed to parse XML response")
+                    all_daily_arrays.append(np.zeros((96, len(production_types))))
+            else:
+                # API fetch failed after all retries, log and append zeros
+                print(
+                    f"    API fetch failed for {current_date_obj.strftime(date_format)} after all retries. Appending a block of zeros.")
+                # Logging is already handled inside the retry loop when max_retries is exceeded
+                all_daily_arrays.append(np.zeros((96, len(production_types))))
+
+            # --- Increment date and politeness sleep ---
+            current_date_obj += timedelta(days=1)
+            if current_date_obj <= end_date_loop_obj:
+                time.sleep(self.GENERAL_POLITENESS_SECONDS)
+
+        if not all_daily_arrays:
+            print(f"No data successfully processed for {domain_eic} in the given date range.")
+            return None
+
+        return np.concatenate(all_daily_arrays, axis=0)
+
+    # </editor-fold>
+
+    # <editor-fold desc="NEW - Parse Physical Flow (A11)">
+    def parse_physical_flow_to_numpy(self, xml_string: str) -> np.ndarray | None:
+        """
+        Parses an A11 XML string (Cross-Border Physical Flow) into a 1D NumPy array.
+        It handles both PT15M and PT60M resolutions. If PT60M, it pads by repeating.
+
+        Args:
+            xml_string: The XML data string from the API.
+
+        Returns:
+            A 1D NumPy array with 96 values for a 24-hour period, or None on critical failure.
+        """
+        try:
+            # The namespace for Publication_MarketDocument is slightly different.
+            # Using a wildcard search for TimeSeries is often robust enough.
+            root = ET.fromstring(xml_string)
+        except ET.ParseError as e:
+            print(f"XML Parsing Error in parse_physical_flow_to_numpy: {e}")
+            return None
+
+        # There should only be one TimeSeries for a physical flow query
+        time_series = root.find('.//{*}TimeSeries')  # Use wildcard to ignore namespace
+        if time_series is None:
+            print("Warning: No TimeSeries element found in the physical flow XML.")
+            return None  # Return None to indicate no data found in this file
+
+        resolution_el = time_series.find('.//{*}Period/{*}resolution')
+        if resolution_el is None:
+            print("Warning: No resolution element found.")
+            return None
+
+        quantities = []
+        points = time_series.findall('.//{*}Period/{*}Point')
+        point_map = {p.find('{*}position').text: p.find('{*}quantity').text for p in points if
+                     p.find('{*}position') is not None and p.find('{*}quantity') is not None}
+
+        num_expected_points = 0
+        if resolution_el.text == 'PT15M':
+            num_expected_points = 96
+        elif resolution_el.text == 'PT60M':
+            num_expected_points = 24
+        else:
+            print(f"Unsupported resolution found: {resolution_el.text}")
+            return None
+
+        for i in range(1, num_expected_points + 1):
+            quantity_str = point_map.get(str(i), "0")
+            try:
+                quantities.append(float(quantity_str))
+            except (ValueError, TypeError):
+                quantities.append(0.0)
+
+        # If data was hourly, pad it. Otherwise, it's already 96 points.
+        if resolution_el.text == 'PT60M':
+            padded_quantities = np.repeat(quantities, 4)
+            return padded_quantities
+        else:  # PT15M
+            return np.array(quantities, dtype=float)
+
+    # </editor-fold>
+
+    # <editor-fold desc="NEW - Fetch Physical Flow for Date Range">
+    def fetch_physical_flow_for_range(
+            self,
+            overall_start_date_str: str,
+            overall_end_date_str: str,
+            in_domain_eic: str,
+            out_domain_eic: str,
+            base_api_url: str = "https://web-api.tp.entsoe.eu/api"
+    ):
+        """
+        Fetches Cross-Border Physical Flow (A11) for a date range and a specific direction,
+        with robust retry and logging logic.
+
+        Args:
+            overall_start_date_str: Start date "YYYY-MM-DD".
+            overall_end_date_str: End date "YYYY-MM-DD".
+            in_domain_eic: The EIC code of the 'from' area.
+            out_domain_eic: The EIC code of the 'to' area.
+
+        Returns:
+            A combined 1D NumPy array for the entire period, or None if it fails.
+        """
+        date_format = "%Y-%m-%d"
+        try:
+            current_date_obj = datetime.strptime(overall_start_date_str, date_format)
+            end_date_loop_obj = datetime.strptime(overall_end_date_str, date_format)
+        except ValueError:
+            print("Error: Invalid date format. Please use yyyy-mm-dd.")
+            return None
+
+        all_daily_arrays = []
+        time_hour_minute = "2200"
+
+        log_psr_name = f"Physical_Flow-{in_domain_eic}-to-{out_domain_eic}"
+        print(f"Fetching {log_psr_name} from {overall_start_date_str} to {overall_end_date_str}")
+
+        while current_date_obj <= end_date_loop_obj:
+            api_query_start_date = current_date_obj - timedelta(days=1)
+            period_start_formatted = api_query_start_date.strftime("%Y%m%d") + time_hour_minute
+            period_end_formatted = current_date_obj.strftime("%Y%m%d") + time_hour_minute
+
+            url = (f"{base_api_url}?documentType=A11&processType=A16"
+                   f"&in_Domain={in_domain_eic}"
+                   f"&out_Domain={out_domain_eic}"
+                   f"&periodStart={period_start_formatted}&periodEnd={period_end_formatted}"
+                   f"&securityToken={self.api_key}")
+
+            print(f"  Querying for date: {current_date_obj.strftime(date_format)}")
+
+            max_api_retries = 5
+            api_attempt = 0
+            response_text_for_day = None
+
+            while api_attempt <= max_api_retries:
+                # --- Rate Limiting Check ---
+                now = datetime.now()
+                elapsed_since_window_start = (now - self.minute_window_start_time).total_seconds()
+
+                if elapsed_since_window_start >= self.RATE_LIMIT_WINDOW_SECONDS:
+                    print(
+                        f"    Rate limit: Minute window expired. Resetting count from {self.request_count_this_minute}.")
+                    self.request_count_this_minute = 0
+                    self.minute_window_start_time = now
+                    elapsed_since_window_start = 0
+
+                if self.request_count_this_minute >= (self.MAX_REQUESTS_PER_MINUTE - self.RATE_LIMIT_BUFFER):
+                    time_to_wait_for_next_window = self.RATE_LIMIT_WINDOW_SECONDS - elapsed_since_window_start
+                    if time_to_wait_for_next_window > 0:
+                        sleep_duration = time_to_wait_for_next_window + 1.0
+                        print(
+                            f"    Rate limit: Approaching limit ({self.request_count_this_minute} requests). Sleeping for {sleep_duration:.2f} seconds.")
+                        time.sleep(sleep_duration)
+                    self.request_count_this_minute = 0
+                    self.minute_window_start_time = datetime.now()
+
+                try:
+                    print(
+                        f"    Attempting API request for {current_date_obj.strftime(date_format)} (attempt {api_attempt + 1}/{max_api_retries + 1})...")
+                    connect_timeout = 60
+                    read_timeout = 120
+                    response = requests.request("GET", url, headers={}, data={},
+                                                timeout=(connect_timeout, read_timeout))
+
+                    self.request_count_this_minute += 1
+                    print(f"    Request count this minute: {self.request_count_this_minute}")
+
+                    response.raise_for_status()
+                    response_text_for_day = response.text
+                    break
+
+                except requests.exceptions.HTTPError as http_err:
+                    reason = f"HTTPError: {http_err.response.status_code if http_err.response else 'Unknown'}"
+                    if http_err.response is not None and http_err.response.status_code == 429:
+                        print(f"    RATE LIMIT HIT (429)! Banned for 10 minutes. Sleeping...")
+                        time.sleep(60 * 10 + 5)
+                        self.minute_window_start_time = datetime.now()
+                        self.request_count_this_minute = 0
+                        api_attempt += 1
+                        if api_attempt > max_api_retries:
+                            print(
+                                f"    Max retries for 429 reached for date {current_date_obj.strftime(date_format)}. Skipping.")
+                            self.log_skipped_date(log_psr_name, current_date_obj, "Max retries for HTTP 429")
+                    else:
+                        print(f"    HTTP error ({reason}) for {current_date_obj.strftime(date_format)}: {http_err}")
+                        self.log_skipped_date(log_psr_name, current_date_obj, reason)
+                        break
+                except requests.exceptions.RequestException as req_err:
+                    reason = f"RequestException: {type(req_err).__name__}"
+                    print(
+                        f"    Network error for {current_date_obj.strftime(date_format)} (attempt {api_attempt + 1}): {req_err}")
+                    api_attempt += 1
+                    if api_attempt > max_api_retries:
+                        print(
+                            f"    Max retries for Network error reached for date {current_date_obj.strftime(date_format)}. Skipping.")
+                        self.log_skipped_date(log_psr_name, current_date_obj,
+                                              f"Max retries for Network error ({type(req_err).__name__})")
+                    else:
+                        base_delay = 5
+                        current_delay_exp = base_delay * (2 ** (api_attempt - 1))
+                        jitter = np.random.uniform(0, 1)
+                        sleep_duration = min(current_delay_exp + jitter, 120)
+                        print(f"    Waiting {sleep_duration:.2f} seconds before retrying network error...")
+                        time.sleep(sleep_duration)
+
+            # --- Process the response if successfully fetched ---
+            if response_text_for_day:
+                daily_array = self.parse_physical_flow_to_numpy(response_text_for_day)
+                if daily_array is not None:
+                    all_daily_arrays.append(daily_array)
+                    print(f"    Successfully processed data for {current_date_obj.strftime(date_format)}.")
+                else:
+                    print(
+                        f"    Warning: Parsing returned no data for {current_date_obj.strftime(date_format)}. Appending a block of zeros.")
+                    self.log_skipped_date(log_psr_name, current_date_obj,
+                                          "XML response parsed, but resulted in no data (e.g., no TimeSeries).")
+                    all_daily_arrays.append(np.zeros(96))
+            else:
+                # API fetch failed after all retries, log and append zeros
+                print(
+                    f"    API fetch failed for {current_date_obj.strftime(date_format)} after all retries. Appending a block of zeros.")
+                # Logging is already handled inside the retry loop when max_retries is exceeded
+                all_daily_arrays.append(np.zeros(96))
+
+            # --- Increment date and politeness sleep ---
+            current_date_obj += timedelta(days=1)
+            if current_date_obj <= end_date_loop_obj:
+                time.sleep(self.GENERAL_POLITENESS_SECONDS)
+
+        if not all_daily_arrays:
+            print(f"No data successfully processed for {log_psr_name} in the given date range.")
+            return None
+
+        return np.concatenate(all_daily_arrays, axis=0)
+    # </editor-fold>

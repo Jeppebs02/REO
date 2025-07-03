@@ -1,0 +1,14 @@
+
+Data columns for DK1 and DK2 production arrays:
+- File format: NumPy array (.npy)
+- Time resolution: 15-minute intervals.
+- Units: Average power in Megawatts (MW)
+
+Column Mapping:
+- Column 0: B05 (Fossil Hard coal)
+- Column 1: B01 (Biomass)
+
+
+Shape of DK1 data: (35040, 2)
+
+Shape of DK2 data: (35040, 2)

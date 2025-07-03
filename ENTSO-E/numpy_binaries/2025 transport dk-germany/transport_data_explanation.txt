@@ -1,0 +1,18 @@
+
+Data columns for DE_DK1_flow.npy and DE_DK2_flow.npy:
+- File format: NumPy array (.npy)
+- Time resolution: 15-minute intervals.
+- Units: Average power in Megawatts (MW)
+
+Column Mapping:
+- Column 0: Import to DK (Flow from DE-LU to DK)
+- Column 1: Export from DK (Flow from DK to DE-LU)
+
+
+Shape of DE-DK1 flow data: (35040, 2)
+
+Shape of DE-DK2 flow data: (35040, 2)
+
+
+
+For all skipped dates in the log, a block of zeros has been appended.
