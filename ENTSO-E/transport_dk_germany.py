@@ -30,7 +30,7 @@ if __name__ == "__main__":
     else:
         EEP = EntsoeDataProcessor(api_key=api_key)
 
-        start_year = "2025"
+        start_year = "2024"
         start_date = f"{start_year}-01-01"
         end_date = f"{start_year}-12-31"
 
