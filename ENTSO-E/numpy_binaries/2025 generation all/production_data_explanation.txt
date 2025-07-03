@@ -1,0 +1,35 @@
+--- Data Explanation for ENTSO-E Production Data (2025) ---
+This file describes the content and structure of the generated NumPy (.npy) files.
+
+--- General Information ---
+- File format: NumPy array (.npy)
+- Time resolution: 15-minute intervals.
+- Units: Average power in Megawatts (MW)
+- Data Period: 2025-01-01 to 2025-12-31
+
+--- Generated Files and Array Shapes ---
+- DK1_production_all_types_2025.npy: Shape = (35040, 21)
+- DK2_production_all_types_2025.npy: Shape = (35040, 21)
+
+--- Production Data Column Mapping ---
+- Column 0: B02 (Fossil Brown coal/Lignite)
+- Column 1: B03 (Fossil Coal-derived gas)
+- Column 2: B04 (Fossil Gas)
+- Column 3: B05 (Fossil Hard coal)
+- Column 4: B06 (Fossil Oil)
+- Column 5: B07 (Fossil Oil shale)
+- Column 6: B08 (Fossil Peat)
+- Column 7: B01 (Biomass)
+- Column 8: B09 (Geothermal)
+- Column 9: B11 (Hydro Run-of-river and poundage)
+- Column 10: B12 (Hydro Water Reservoir)
+- Column 11: B13 (Marine)
+- Column 12: B15 (Other renewable)
+- Column 13: B16 (Solar)
+- Column 14: B18 (Wind Offshore)
+- Column 15: B19 (Wind Onshore)
+- Column 16: B10 (Hydro Pumped Storage)
+- Column 17: B14 (Nuclear)
+- Column 18: B17 (Waste)
+- Column 19: B20 (Other)
+- Column 20: B25 (Energy storage)
