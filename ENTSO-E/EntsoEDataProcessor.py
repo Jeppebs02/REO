@@ -353,7 +353,7 @@ class EntsoeDataProcessor:
             domain_eic: str,
             psr_name_to_extract: str,
             base_api_url: str = "https://web-api.tp.entsoe.eu/api",
-            time_hour_minute: str = "2200"  # The HHmm part for periodStart/End
+            time_hour_minute: str = "0000"  # The HHmm part for periodStart/End
     ):
         date_format = "%Y-%m-%d"
         try:
