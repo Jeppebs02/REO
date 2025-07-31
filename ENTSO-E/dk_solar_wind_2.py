@@ -27,6 +27,28 @@ def load_numpy_from_npy(filepath: str) -> np.ndarray | None:
     return None
 
 
+def save_numpy_to_csv(filepath: str, array_data: np.ndarray):
+    """Saves a NumPy array (with object dtype) to a CSV file."""
+    print(f"Saving data to {filepath}...")
+    # Using '%s' format specifier is robust for object arrays (strings and numbers)
+    np.savetxt(filepath, array_data, delimiter=",", fmt='%s', header="Timestamp,Quantity_MW", comments='')
+    print(f"Data saved successfully to {filepath}.")
+
+def load_numpy_from_csv(filepath: str) -> np.ndarray | None:
+    """Loads a NumPy array from a CSV file, expecting object dtype."""
+    if os.path.exists(filepath):
+        print(f"Loading data from {filepath}...")
+        try:
+            # dtype=object is crucial to correctly read the timestamp strings
+            array_data = np.loadtxt(filepath, delimiter=",", dtype=object, skiprows=1)
+            print(f"Data loaded successfully from {filepath}.")
+            return array_data
+        except Exception as e:
+            print(f"Error loading data from {filepath}: {e}")
+            return None
+    return None
+
+
 def get_actual_date_strings_for_filename(array_data: np.ndarray) -> tuple[str, str] | None:
     if array_data is None or array_data.ndim != 2 or array_data.shape[0] == 0 or array_data.shape[1] < 1:
         return None
@@ -45,69 +67,61 @@ def get_actual_date_strings_for_filename(array_data: np.ndarray) -> tuple[str, s
         return None
 
 
-
 def process_psrs(
-    psr_names: Sequence[str],
-    start_date: str,
-    end_date: str,
-    domain_eic: str,
-    eep,                       # EntsoeDataProcessor instance
-    time_hour_minute: str = "2200",
-    sleep_seconds: int = 5,
+        psr_names: Sequence[str],
+        start_date: str,
+        end_date: str,
+        domain_eic: str,
+        eep,
+        time_hour_minute: str = "2200",
+        sleep_seconds: int = 5,
+        pad_missing_days: bool = False,
+        fill_value=np.nan,
+        saveAsCSV: bool = False  # NEW PARAMETER
 ) -> None:
-    """
-    Load or fetch data for several PSRs and persist each as an .npy file.
-
-    Parameters
-    ----------
-    psr_names : sequence[str]
-        PSR names to process.
-    start_date, end_date : str
-        Date range in YYYY-MM-DD format.
-    domain_eic : str
-        EIC of the domain.
-    eep : EntsoeDataProcessor
-        Pre-initialised data processor.
-    time_hour_minute : str, default '2200'
-        Settlement period requested by Entsoe API.
-    sleep_seconds : int, default 5
-        Pause between API calls.
-    """
     for psr in psr_names:
+        print(f"\n--- Processing PSR: {psr} ---")
         base = psr.replace(" ", "_")
-        default_file = f"{base}_{start_date}_to_{end_date}.npy"
+        extension = ".csv" if saveAsCSV else ".npy"
 
-        data = load_numpy_from_npy(default_file)
+        default_file = f"{base}_{start_date}_to_{end_date}{extension}"
+
+        # Conditional loading based on the file format
+        data = load_numpy_from_csv(default_file) if saveAsCSV else load_numpy_from_npy(default_file)
+
         if data is None:
-            print(f"No local data for {psr}. Fetching...")
-            data = eep.fetch_and_process_psr_data_range(
+            print(f"No local data for {psr} found as {default_file}. Fetching from API...")
+            data = eep.fetch_and_process_psr_data_range_new(
                 overall_start_date_str=start_date,
                 overall_end_date_str=end_date,
                 domain_eic=domain_eic,
                 psr_name_to_extract=psr,
                 time_hour_minute=time_hour_minute,
+                pad_missing_days=pad_missing_days,
+                fill_value=fill_value
             )
-            if data is None:
+            if data is None or data.size == 0:
                 print(f"✗ Failed to fetch data for {psr}")
                 continue
 
-            # Try to reflect the true span in the filename
             actual = get_actual_date_strings_for_filename(data)
             if actual:
                 a_start, a_end = actual
-                filename_to_save = f"{base}_{a_start}_to_{a_end}.npy"
+                filename_to_save = f"{base}_{a_start}_to_{a_end}{extension}"
                 print(f"✓ Actual dates for {psr}: {a_start} → {a_end}")
             else:
                 filename_to_save = default_file
-                print(f"Couldn’t extract dates for {psr}; using requested range.")
+                print(f"Couldn’t extract dates for {psr}; using requested range for filename.")
 
-            save_numpy_to_npy(filename_to_save, data)
+            # Conditional saving based on the chosen format
+            if saveAsCSV:
+                save_numpy_to_csv(filename_to_save, data)
+            else:
+                save_numpy_to_npy(filename_to_save, data)
         else:
-            print(f"✓ Loaded cached data for {psr}")
+            print(f"✓ Loaded cached data for {psr} from {default_file}")
 
-        # Diagnostics
         print(f"Data shape for {psr}: {data.shape if data is not None else 'N/A'}")
-        print("-" * 40)
         sleep(sleep_seconds)
 
 # </editor-fold>
@@ -165,8 +179,11 @@ process_psrs(
     end_date=end_date1,
     domain_eic=domain_eic,
     eep=EEP,
-    time_hour_minute="2200",
+    time_hour_minute="0000",
     sleep_seconds=5,
+    pad_missing_days=True,
+    fill_value=0,
+    saveAsCSV=True  # Change to True if you want to save as CSV
 )
 
 

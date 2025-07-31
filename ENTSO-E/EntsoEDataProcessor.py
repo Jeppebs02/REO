@@ -34,6 +34,99 @@ class EntsoeDataProcessor:
 
 # <editor-fold desc="Helper functions">
 
+    def _perform_robust_request(self, url: str, log_context_name: str, date_obj: datetime) -> str | None:
+        """
+        Performs a single, robust API GET request with rate limiting, retries, and logging.
+        This is a helper method for the main data fetching functions.
+
+        Args:
+            url: The full API URL to request.
+            log_context_name: A string identifying the data being fetched (e.g., PSR name or flow type) for logging.
+            date_obj: The date being queried, for logging purposes.
+
+        Returns:
+            The XML response text as a string if successful, otherwise None.
+        """
+        max_api_retries = 5
+        api_attempt = 0
+
+        while api_attempt <= max_api_retries:
+            # --- Rate Limiting Check (before each attempt) ---
+            now = datetime.now()
+            elapsed_since_window_start = (now - self.minute_window_start_time).total_seconds()
+
+            if elapsed_since_window_start >= self.RATE_LIMIT_WINDOW_SECONDS:
+                print(f"    Rate limit: Minute window expired. Resetting count from {self.request_count_this_minute}.")
+                self.request_count_this_minute = 0
+                self.minute_window_start_time = now
+
+            if self.request_count_this_minute >= (self.MAX_REQUESTS_PER_MINUTE - self.RATE_LIMIT_BUFFER):
+                time_to_wait_for_next_window = self.RATE_LIMIT_WINDOW_SECONDS - (
+                            now - self.minute_window_start_time).total_seconds()
+                if time_to_wait_for_next_window > 0:
+                    sleep_duration = time_to_wait_for_next_window + 1.0
+                    print(
+                        f"    Rate limit: Approaching limit ({self.request_count_this_minute} requests). Sleeping for {sleep_duration:.2f} seconds.")
+                    time.sleep(sleep_duration)
+                self.request_count_this_minute = 0
+                self.minute_window_start_time = datetime.now()
+
+            try:
+                print(
+                    f"    Attempting API request for {date_obj.strftime('%Y-%m-%d')} (attempt {api_attempt + 1}/{max_api_retries + 1})...")
+                response = requests.request("GET", url, headers={}, data={}, timeout=(60, 120))  # (connect, read)
+
+                self.request_count_this_minute += 1
+                print(f"    Request count this minute: {self.request_count_this_minute}")
+
+                response.raise_for_status()
+                return response.text  # Success! Return the XML text.
+
+            except requests.exceptions.HTTPError as http_err:
+                if http_err.response is not None and http_err.response.status_code == 429:
+                    print(f"    RATE LIMIT HIT (429)! Banned for 10 minutes. Sleeping...")
+                    time.sleep(60 * 10 + 5)
+                    self.minute_window_start_time = datetime.now()
+                    self.request_count_this_minute = 0
+                    api_attempt += 1
+                else:
+                    error_status = http_err.response.status_code if http_err.response is not None else "Unknown"
+                    print(f"    HTTP error ({error_status}) for {date_obj.strftime('%Y-%m-%d')}: {http_err}")
+                    self.log_skipped_date(log_context_name, date_obj, f"HTTP error {error_status}")
+                    return None  # Non-retryable HTTP error, fail immediately for this date
+            except requests.exceptions.RequestException as req_err:
+                print(f"    Network error for {date_obj.strftime('%Y-%m-%d')} (attempt {api_attempt + 1}): {req_err}")
+                api_attempt += 1
+                if api_attempt > max_api_retries:
+                    break  # Exit loop if max retries are exceeded
+
+                base_delay = 5
+                current_delay_exp = base_delay * (2 ** (api_attempt - 1))
+                jitter = np.random.uniform(0, 1)
+                sleep_duration = min(current_delay_exp + jitter, 120)
+                print(f"    Waiting {sleep_duration:.2f} seconds before retrying network error...")
+                time.sleep(sleep_duration)
+
+        # This part is reached only if the while loop completes without a successful return
+        print(f"    Max retries reached for {date_obj.strftime('%Y-%m-%d')}. Skipping this date.")
+        self.log_skipped_date(log_context_name, date_obj, "Max retries reached for API request")
+        return None
+
+    def _generate_placeholder_day(self, start_datetime: datetime, fill_value) -> np.ndarray:
+        """Generates a placeholder NumPy array for a single day with a specific fill value."""
+        print(
+            f"    Generating placeholder data for day starting {start_datetime.strftime('%Y-%m-%d %H:%M')} with fill value '{fill_value}'.")
+
+        points_data = []
+        for i in range(96):  # A day has 96 15-minute intervals
+            hour_offset = i // 4
+            current_hour_dt = start_datetime + timedelta(hours=hour_offset)
+            formatted_timestamp = current_hour_dt.strftime("%Y%m%d%H")
+            points_data.append([formatted_timestamp, fill_value])
+
+        return np.array(points_data, dtype=object)
+
+
     def log_skipped_date(self, psr_name: str, date_obj: datetime, reason: str):
         """Appends a skipped date entry to the log file."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -353,7 +446,9 @@ class EntsoeDataProcessor:
             domain_eic: str,
             psr_name_to_extract: str,
             base_api_url: str = "https://web-api.tp.entsoe.eu/api",
-            time_hour_minute: str = "0000"  # The HHmm part for periodStart/End
+            time_hour_minute: str = "2200",  # The HHmm part for periodStart/End
+            pad_missing_days: bool = False,  # NEW PARAMETER
+            fill_value=np.nan  # NEW PARAMETER
     ):
         date_format = "%Y-%m-%d"
         try:
@@ -504,6 +599,98 @@ class EntsoeDataProcessor:
         final_combined_array = np.concatenate(all_daily_numpy_arrays, axis=0)
         print(f"Successfully fetched and combined data. Total points: {final_combined_array.shape[0]}")
         return final_combined_array
+    # </editor-fold>
+
+    # <editor-fold desc="REFACTORED - fetch_and_process_psr_data_range">
+    def fetch_and_process_psr_data_range_new(
+            self,
+            overall_start_date_str: str,
+            overall_end_date_str: str,
+            domain_eic: str,
+            psr_name_to_extract: str,
+            base_api_url: str = "https://web-api.tp.entsoe.eu/api",
+            time_hour_minute: str = "2200",
+            pad_missing_days: bool = False,
+            fill_value=np.nan
+    ):
+        date_format = "%Y-%m-%d"
+        try:
+            current_date_obj = datetime.strptime(overall_start_date_str, date_format)
+            end_date_loop_obj = datetime.strptime(overall_end_date_str, date_format)
+        except ValueError:
+            print("Error: Invalid date format. Please use yyyy-mm-dd.")
+            return None
+
+        all_daily_numpy_arrays = []
+
+        print(f"Fetching data for '{psr_name_to_extract}' from {overall_start_date_str} to {overall_end_date_str}")
+
+        while current_date_obj <= end_date_loop_obj:
+            start_dt = datetime.strptime(current_date_obj.strftime("%Y%m%d") + time_hour_minute, "%Y%m%d%H%M")
+            end_dt = start_dt + timedelta(days=1)
+            period_start_formatted = start_dt.strftime("%Y%m%d%H%M")
+            period_end_formatted = end_dt.strftime("%Y%m%d%H%M")
+
+            url = (f"{base_api_url}?documentType=A73&processType=A16"
+                   f"&in_Domain={domain_eic}"
+                   f"&periodStart={period_start_formatted}&periodEnd={period_end_formatted}"
+                   f"&securityToken={self.api_key}")
+
+            print(f"  Querying for period starting: {start_dt.strftime('%Y-%m-%d %H:%M')}")
+
+            # The entire retry logic is now inside this single helper call
+            response_text_for_day = self._perform_robust_request(
+                url=url,
+                log_context_name=psr_name_to_extract,
+                date_obj=current_date_obj
+            )
+
+            # Check if the response indicates "No data"
+            is_no_data_response = response_text_for_day and "<Reason>" in response_text_for_day and "No matching data found" in response_text_for_day
+            if is_no_data_response:
+                print(f"    API returned 'No matching data found'.")
+                self.log_skipped_date(psr_name_to_extract, current_date_obj, "API returned 'No matching data found'")
+                response_text_for_day = None
+
+            # Process the response or pad if necessary
+            if response_text_for_day:
+                try:
+                    padded_xml = self.pad_hourly_to_15min(response_text_for_day)
+                    if padded_xml:
+                        psr_specific_xml = self.extract_psr_data_to_xml(padded_xml, psr_name_to_extract)
+                        if psr_specific_xml:
+                            daily_numpy_array = self.psr_xml_to_numpy(psr_specific_xml)
+                            if daily_numpy_array is not None and daily_numpy_array.size > 0:
+                                all_daily_numpy_arrays.append(daily_numpy_array)
+                                print(f"    Successfully processed {daily_numpy_array.shape[0]} points.")
+                            else:
+                                if pad_missing_days: all_daily_numpy_arrays.append(
+                                    self._generate_placeholder_day(start_dt, fill_value))
+                        else:
+                            if pad_missing_days: all_daily_numpy_arrays.append(
+                                self._generate_placeholder_day(start_dt, fill_value))
+                    else:
+                        if pad_missing_days: all_daily_numpy_arrays.append(
+                            self._generate_placeholder_day(start_dt, fill_value))
+                except Exception as e:
+                    print(f"    An unexpected error occurred during processing: {e}")
+                    if pad_missing_days: all_daily_numpy_arrays.append(
+                        self._generate_placeholder_day(start_dt, fill_value))
+            else:  # API fetch failed, was "No data", or a processing step failed
+                print(f"    No valid data document to process for {current_date_obj.strftime('%Y-%m-%d')}.")
+                if pad_missing_days:
+                    all_daily_numpy_arrays.append(self._generate_placeholder_day(start_dt, fill_value))
+
+            current_date_obj += timedelta(days=1)
+            if current_date_obj <= end_date_loop_obj:
+                time.sleep(self.GENERAL_POLITENESS_SECONDS)
+
+        if not all_daily_numpy_arrays:
+            print(f"No data successfully processed or padded for '{psr_name_to_extract}' in the given date range.")
+            return None
+
+        return np.concatenate(all_daily_numpy_arrays, axis=0)
+
     # </editor-fold>
 
 
