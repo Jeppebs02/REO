@@ -4,10 +4,12 @@ import pandas as pd
 import os
 
 
-client = EntsoePandasClient(api_key=os.getenv("API_KEY"))
+client = EntsoePandasClient(api_key="791704c1-52a0-41f8-b30e-ad4b7e849c7a")
 
 start = pd.Timestamp('20250101', tz='Europe/Copenhagen')
 end = pd.Timestamp('20251231', tz='Europe/Copenhagen')
+# Second end date
+end2 = pd.Timestamp('20250220', tz='Europe/Copenhagen')
 
 country_code = 'DK'  # Denmark
 process_type = 'A16'  # Realized
