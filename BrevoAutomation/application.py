@@ -53,7 +53,7 @@ if __name__ == '__main__':
     brevo_requester = BrevoRequester()
 
     # Path to the file on Dropbox
-    DROPBOX_FILE_PATH = "/REO/Medlems-liste/Medlemmer-alle-01.01.2025.xlsx"
+    DROPBOX_FILE_PATH = "/REO/Medlems-liste/Medlemmer-alle-01.01.2026.xlsx"
     # Local path to save the file
     LOCAL_FILENAME = "AlleMedlemmer.xlsx"
     TARGET_BREVO_LIST_ID = 4  # The "Alle Medlemmer" list ID
