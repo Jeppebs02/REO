@@ -2,7 +2,7 @@ import os
 from time import sleep
 import numpy as np
 
-from EntsoEDataProcessor import EntsoeDataProcessor
+from entsoe import EntsoEClient
 
 # <editor-fold desc="Miscellaneous Functions">
 
@@ -49,7 +49,7 @@ def get_actual_date_strings_for_filename(array_data: np.ndarray) -> tuple[str, s
 
 
 
-EEP = EntsoeDataProcessor(os.getenv("API_KEY"))
+EEP = EntsoEClient(os.getenv("API_KEY"))
 
 # Variables
 # Dates are in YYYY-MM-DD format

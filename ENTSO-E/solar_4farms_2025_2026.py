@@ -9,7 +9,7 @@ Period: 2025-01-01 → 2026-06-12
 Output: CSV files in the current working directory (run from ENTSO-E/)
 
 Resolution note: ENTSO-E switched Danish solar farms from PT60M to PT15M mid-2025.
-EntsoEDataProcessor handles both transparently — no special-casing needed here.
+EntsoEClient handles both transparently — no special-casing needed here.
 
 Requires the API_KEY environment variable to be set.
 """
@@ -19,7 +19,7 @@ from typing import Sequence
 
 import numpy as np
 
-from EntsoEDataProcessor import EntsoeDataProcessor
+from entsoe import EntsoEClient
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ def process_psrs(
         start_date: str,
         end_date: str,
         domain_eic: str,
-        eep: EntsoeDataProcessor,
+        eep: EntsoEClient,
         time_hour_minute: str = "0000",
         sleep_seconds: int = 5,
         pad_missing_days: bool = False,
@@ -150,7 +150,7 @@ DOMAIN_DK1 = "10Y1001A1001A796"
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    eep = EntsoeDataProcessor(os.getenv("API_KEY"))
+    eep = EntsoEClient(os.getenv("API_KEY"))
 
     process_psrs(
         psr_names=PSR_LIST,

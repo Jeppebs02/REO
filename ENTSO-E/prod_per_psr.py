@@ -2,7 +2,7 @@
 
 import os
 import numpy as np
-from EntsoEDataProcessor import EntsoeDataProcessor  # Make sure to import your updated class
+from entsoe import EntsoEClient
 
 # Define the production types and their column order
 # This is crucial for consistency
@@ -36,7 +36,7 @@ if __name__ == "__main__":
     if not api_key:
         print("Error: API_KEY environment variable not set.")
     else:
-        EEP = EntsoeDataProcessor(api_key=api_key)
+        EEP = EntsoEClient(api_key=api_key)
 
         start_year = "2025"
         start_date = f"{start_year}-01-01"

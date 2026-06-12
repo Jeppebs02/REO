@@ -16,15 +16,12 @@ HOW TO RUN
 """
 
 import os
-import sys
 from time import sleep
 from typing import Sequence
 
 import numpy as np
 
-# ── Allow importing EntsoEDataProcessor from the parent ENTSO-E/ directory ───
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from EntsoEDataProcessor import EntsoeDataProcessor
+from entsoe import EntsoEClient
 
 
 # =============================================================================
@@ -122,7 +119,7 @@ def _fetch_units(
         start_date: str,
         end_date: str,
         domain_eic: str,
-        processor: EntsoeDataProcessor,
+        processor: EntsoEClient,
 ) -> None:
     os.makedirs(_OUTPUT_DIR, exist_ok=True)
 
@@ -197,7 +194,7 @@ def main() -> None:
     print(f"  Output dir : {_OUTPUT_DIR}")
     print("=" * 60)
 
-    processor = EntsoeDataProcessor(API_KEY)
+    processor = EntsoEClient(API_KEY)
     _fetch_units(psr_list, START_DATE, END_DATE, domain_eic, processor)
 
     print(f"\n{'='*60}")

@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from EntsoEDataProcessor import EntsoeDataProcessor
+from entsoe import EntsoEClient
 
 # --- EIC Codes ---
 DE_LU_EIC = "10Y1001A1001A82H"
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     if not api_key:
         print("Error: API_KEY environment variable not set.")
     else:
-        EEP = EntsoeDataProcessor(api_key=api_key)
+        EEP = EntsoEClient(api_key=api_key)
 
         start_year = "2024"
         start_date = f"{start_year}-01-01"

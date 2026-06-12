@@ -3,7 +3,7 @@ from time import sleep
 from typing import Sequence
 import numpy as np
 
-from EntsoEDataProcessor import EntsoeDataProcessor
+from entsoe import EntsoEClient
 
 # <editor-fold desc="Miscellaneous Functions">
 
@@ -130,7 +130,7 @@ def process_psrs(
 
 
 
-EEP = EntsoeDataProcessor(os.getenv("API_KEY"))
+EEP = EntsoEClient(os.getenv("API_KEY"))
 
 # Variables
 # Dates are in YYYY-MM-DD format
