@@ -80,7 +80,7 @@ class EntsoeDataProcessor:
                 print(f"    Request count this minute: {self.request_count_this_minute}")
 
                 response.raise_for_status()
-                return response.text  # Success! Return the XML text.
+                return response.content.decode('utf-8')  # Explicit UTF-8 decode; requests defaults to ISO-8859-1 for text/xml which garbles Danish characters.
 
             except requests.exceptions.HTTPError as http_err:
                 if http_err.response is not None and http_err.response.status_code == 429:
