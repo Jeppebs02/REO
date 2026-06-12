@@ -10,6 +10,7 @@ the full examples remain in `Transparency Platform Restful API.md`.
 
 | Collection | Endpoints | Scope |
 |---|---|---|
+| [Rate Limits](./Other/Rate-Limits.md) | N/A | Request quotas, token bans, throttling guidance |
 | [Market](./Market/README.md) | 14 | Allocations, transfer capacity, congestion income, energy prices |
 | [Load](./Load/README.md) | 7 | Actual load and load forecasts (day/week/month/year-ahead) |
 | [Generation](./Generation/README.md) | 7 | Installed capacity, actual generation, generation forecasts |
@@ -53,3 +54,5 @@ https://transparencyplatform.zendesk.com/hc/en-us/sections/12783116987028-Web-AP
 Link to Sitemap for Restful API Integration:
 
 https://transparencyplatform.zendesk.com/hc/en-us/articles/15692855254548-Sitemap-for-Restful-API-Integration
+
+
