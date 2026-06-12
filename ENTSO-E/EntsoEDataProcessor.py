@@ -611,7 +611,8 @@ class EntsoeDataProcessor:
             base_api_url: str = "https://web-api.tp.entsoe.eu/api",
             time_hour_minute: str = "2200",
             pad_missing_days: bool = False,
-            fill_value=np.nan
+            fill_value=np.nan,
+            registered_resource: str | None = None,
     ):
         date_format = "%Y-%m-%d"
         try:
@@ -631,8 +632,10 @@ class EntsoeDataProcessor:
             period_start_formatted = start_dt.strftime("%Y%m%d%H%M")
             period_end_formatted = end_dt.strftime("%Y%m%d%H%M")
 
+            resource_param = f"&RegisteredResource={registered_resource}" if registered_resource else ""
             url = (f"{base_api_url}?documentType=A73&processType=A16"
                    f"&in_Domain={domain_eic}"
+                   f"{resource_param}"
                    f"&periodStart={period_start_formatted}&periodEnd={period_end_formatted}"
                    f"&securityToken={self.api_key}")
 

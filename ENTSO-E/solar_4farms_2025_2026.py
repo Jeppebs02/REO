@@ -70,6 +70,7 @@ def process_psrs(
         pad_missing_days: bool = False,
         fill_value=np.nan,
         save_as_csv: bool = True,
+        registered_resources: dict[str, str] | None = None,
 ) -> None:
     for psr in psr_names:
         print(f"\n--- Processing PSR: {psr} ---")
@@ -80,6 +81,9 @@ def process_psrs(
         data = load_numpy_from_csv(default_file) if save_as_csv else np.load(default_file) if os.path.exists(default_file) else None
 
         if data is None:
+            resource_code = (registered_resources or {}).get(psr)
+            if resource_code:
+                print(f"  Using RegisteredResource code: {resource_code}")
             print(f"No cached file found ({default_file}). Fetching from API...")
             data = eep.fetch_and_process_psr_data_range_new(
                 overall_start_date_str=start_date,
@@ -89,6 +93,7 @@ def process_psrs(
                 time_hour_minute=time_hour_minute,
                 pad_missing_days=pad_missing_days,
                 fill_value=fill_value,
+                registered_resource=resource_code,
             )
             if data is None or data.size == 0:
                 print(f"✗ Failed to fetch data for {psr}")
@@ -127,6 +132,15 @@ PSR_LIST = [
     VIUF_HASTRUP_PSR_NAME,
 ]
 
+# Unit codes from docs/ENTSO-E/Other/BZN DK1 Generation Units.md
+# Used as RegisteredResource= API param to avoid name-matching on non-ASCII characters
+REGISTERED_RESOURCES = {
+    "Solar Park Holsted":          "45W000000000214N",
+    "Solar Park Kassoe":           "45W000000000209G",
+    "Solar Park Gedmosen":         "45W000000000210V",
+    VIUF_HASTRUP_PSR_NAME:         "45W000000000221Q",
+}
+
 START_DATE = "2025-01-01"
 END_DATE   = "2026-06-12"
 DOMAIN_DK1 = "10Y1001A1001A796"
@@ -149,4 +163,5 @@ if __name__ == "__main__":
         pad_missing_days=True,
         fill_value=0,
         save_as_csv=True,
+        registered_resources=REGISTERED_RESOURCES,
     )
