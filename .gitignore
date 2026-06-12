@@ -41,3 +41,4 @@ Thumbs.db
 # VS Code workspace settings (if using VS Code too)
 .vscode/
 *.xlsx
+CLAUDE.md
