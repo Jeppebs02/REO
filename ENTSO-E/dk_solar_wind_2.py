@@ -182,7 +182,7 @@ process_psrs(
     time_hour_minute="0000",
     sleep_seconds=5,
     pad_missing_days=True,
-    fill_value=0,
+    fill_value=-0.0001,
     saveAsCSV=True  # Change to True if you want to save as CSV
 )
 

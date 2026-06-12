@@ -233,15 +233,15 @@ def parse_generation_by_type(xml_string: str, production_types: list[str]) -> np
         quantities: list[float] = []
         for i in range(1, 25):
             try:
-                quantities.append(float(point_map.get(str(i), "0")))
+                quantities.append(float(point_map.get(str(i), "-0.0001")))
             except (ValueError, TypeError):
-                quantities.append(0.0)
+                quantities.append(-0.0001)
 
         data_by_type[psr_type] = quantities
 
-    daily = np.zeros((96, len(production_types)), dtype=float)
+    daily = np.full((96, len(production_types)), -0.0001, dtype=float)
     for col, psr_type in enumerate(production_types):
-        hourly = data_by_type.get(psr_type, [0.0] * 24)
+        hourly = data_by_type.get(psr_type, [-0.0001] * 24)
         daily[:, col] = np.repeat(hourly, 4)
 
     return daily
@@ -283,9 +283,9 @@ def parse_physical_flow(xml_string: str) -> np.ndarray | None:
     quantities: list[float] = []
     for i in range(1, expected + 1):
         try:
-            quantities.append(float(point_map.get(str(i), "0")))
+            quantities.append(float(point_map.get(str(i), "-0.0001")))
         except (ValueError, TypeError):
-            quantities.append(0.0)
+            quantities.append(-0.0001)
 
     if resolution_el.text == 'PT60M':
         return np.repeat(quantities, 4)

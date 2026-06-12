@@ -156,10 +156,10 @@ class EntsoEClient:
                 else:
                     print(f"    Parsing failed for {current.strftime(_DATE_FMT)}. Appending zeros.")
                     self._http._log_skipped(log_context, current, "Failed to parse XML response")
-                    daily_arrays.append(np.zeros((96, len(production_types))))
+                    daily_arrays.append(np.full((96, len(production_types)), -0.0001))
             else:
                 print(f"    API fetch failed for {current.strftime(_DATE_FMT)}. Appending zeros.")
-                daily_arrays.append(np.zeros((96, len(production_types))))
+                daily_arrays.append(np.full((96, len(production_types)), -0.0001))
 
             current += timedelta(days=1)
             if current <= end_dt:
@@ -217,10 +217,10 @@ class EntsoEClient:
                         log_context, current,
                         "XML response parsed but resulted in no data (e.g. no TimeSeries).",
                     )
-                    daily_arrays.append(np.zeros(96))
+                    daily_arrays.append(np.full(96, -0.0001))
             else:
                 print(f"    API fetch failed for {current.strftime(_DATE_FMT)}. Appending zeros.")
-                daily_arrays.append(np.zeros(96))
+                daily_arrays.append(np.full(96, -0.0001))
 
             current += timedelta(days=1)
             if current <= end_dt:

@@ -161,7 +161,7 @@ if __name__ == "__main__":
         time_hour_minute="0000",
         sleep_seconds=5,
         pad_missing_days=True,
-        fill_value=0,
+        fill_value=-0.0001,
         save_as_csv=True,
         registered_resources=REGISTERED_RESOURCES,
     )

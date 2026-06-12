@@ -143,7 +143,7 @@ def _fetch_units(
             psr_name_to_extract=psr,
             time_hour_minute="0000",
             pad_missing_days=True,
-            fill_value=0,
+            fill_value=-0.0001,
         )
 
         if data is None or data.size == 0:
