@@ -1,0 +1,43 @@
+# Balancing
+
+Part of the [ENTSO-E Transparency Platform RESTful API](../ENTSOe-docs.md) documentation.
+
+If you would like to learn more about the data items under this domain please go to [this link](https://transparencyplatform.zendesk.com/hc/en-us/articles/12784099471764). 
+
+## Endpoints (35)
+
+- [17.1.J Cross Border Balancing](./17.1.J-Cross-Border-Balancing.md)
+- [17.1.D Accepted Aggregated Offers](./17.1.D-Accepted-Aggregated-Offers.md)
+- [17.1.E Activated Balancing Energy](./17.1.E-Activated-Balancing-Energy.md)
+- [17.1.F Prices of Activated Balancing Energy](./17.1.F-Prices-of-Activated-Balancing-Energy.md)
+- [IF aFRR 3.16 Cross Border Marginal Prices (CBMPs) for aFRR Central Selection (CS)](./IF-aFRR-3.16-Cross-Border-Marginal-Prices-(CBMPs)-for-aFRR-Central-Selection-(CS).md)
+- [12.3.B&C Balancing energy bids](./12.3.BandC-Balancing-energy-bids.md)
+- [12.3.B&C Balancing energy bids archives](./12.3.BandC-Balancing-energy-bids-archives.md)
+- [IFs mFRR 9.9, aFRR 9.6&9.8 Changes to Bid Availability](./IFs-mFRR-9.9,-aFRR-9.6and9.8-Changes-to-Bid-Availability.md)
+- [12.3.E Aggregated Balancing Energy Bids (GL EB)](./12.3.E-Aggregated-Balancing-Energy-Bids-(GL-EB).md)
+- [IFs 3.10, 3.16 & 3.17 Netted and Exchanged Volumes](./IFs-3.10,-3.16-and-3.17-Netted-and-Exchanged-Volumes.md)
+- [IFs 3.10, 3.16 & 3.17 Netted and Exchanged Volumes per Border](./IFs-3.10,-3.16-and-3.17-Netted-and-Exchanged-Volumes-per-Border.md)
+- [IFs aFRR 3.4 & mFRR 3.4 Elastic Demands](./IFs-aFRR-3.4-and-mFRR-3.4-Elastic-Demands.md)
+- [17.1.B&C Volumes and Prices of Contracted Reserves](./17.1.BandC-Volumes-and-Prices-of-Contracted-Reserves.md)
+- [12.3.F Procured balancing capacity (GL EB)](./12.3.F-Procured-balancing-capacity-(GL-EB).md)
+- [187.2 FCR Total capacity (SO GL)](./187.2-FCR-Total-capacity-(SO-GL).md)
+- [187.2 Shares of FCR capacity (SO GL)](./187.2-Shares-of-FCR-capacity-(SO-GL).md)
+- [187.2 Shares of FCR capacity - share of capacity (SO GL) Legacy](./187.2-Shares-of-FCR-capacity-share-of-capacity-(SO-GL)-Legacy.md)
+- [190.2 Sharing of FCR between SAs (SO GL)](./190.2-Sharing-of-FCR-between-SAs-(SO-GL).md)
+- [188.3 & 189.2 FRR & RR Capacity Outlook (SO GL)](./188.3-and-189.2-FRR-and-RR-Capacity-Outlook-(SO-GL).md)
+- [188.4 & 189.3 FRR and RR Actual Capacity (SO GL)](./188.4-and-189.3-FRR-and-RR-Actual-Capacity-(SO-GL).md)
+- [188.4 FRR Actual Capacity (SO GL) - Legacy](./188.4-FRR-Actual-Capacity-(SO-GL)-Legacy.md)
+- [189.2 Outlook of Reserve Capacities on RR (SO GL)](./189.2-Outlook-of-Reserve-Capacities-on-RR-(SO-GL).md)
+- [189.3 RR Actual Capacity(SO GL)](./189.3-RR-Actual-Capacity(SO-GL).md)
+- [189.3 RR Actual Capacity(SO GL) Legacy](./189.3-RR-Actual-Capacity(SO-GL)-Legacy.md)
+- [17.1.I Financial Expenses and Income for Balancing](./17.1.I-Financial-Expenses-and-Income-for-Balancing.md)
+- [12.3.H&I Allocation and use of cross-zonal balancing capacity](./12.3.HandI-Allocation-and-use-of-cross-zonal-balancing-capacity.md)
+- [IFs 4.5 Permanent Allocation Limitations to Cross-border Capacity on HVDC Lines](./IFs-4.5-Permanent-Allocation-Limitations-to-Cross-border-Capacity-on-HVDC-Lines.md)
+- [IFs 4.3 & 4.4 Balancing Border Capacity Limitations](./IFs-4.3-and-4.4-Balancing-Border-Capacity-Limitations.md)
+- [190.1 Sharing of RR and FRR (SO GL)](./190.1-Sharing-of-RR-and-FRR-(SO-GL).md)
+- [190.1 Sharing of RR and FRR (SO GL) Legacy](./190.1-Sharing-of-RR-and-FRR-(SO-GL)-Legacy.md)
+- [190.3 Exchanged Reserve Capacity (SO GL)](./190.3-Exchanged-Reserve-Capacity-(SO-GL).md)
+- [17.1.G Imbalance prices](./17.1.G-Imbalance-prices.md)
+- [17.1.H Total Imbalance Volumes](./17.1.H-Total-Imbalance-Volumes.md)
+- [12.3.A Current balancing state [GL EB]](./12.3.A-Current-balancing-state-[GL-EB].md)
+- [185.4 Results of the Criteria Application Process - Measurements (SO GL)](./185.4-Results-of-the-Criteria-Application-Process-Measurements-(SO-GL).md)
