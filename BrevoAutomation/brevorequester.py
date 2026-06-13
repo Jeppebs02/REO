@@ -126,3 +126,41 @@ class BrevoRequester:
         # Keep limit low unless we specifically need more
         endpoint = "contacts/lists?limit=10&offset=0&sort=desc"
         return self._make_request("GET", endpoint)
+
+    def get_all_contacts_in_list(self, list_id, limit=500):
+        """Fetches all contacts in a list via pagination. Returns list of email strings."""
+        emails = []
+        offset = 0
+        while True:
+            endpoint = f"contacts/lists/{list_id}/contacts?limit={limit}&offset={offset}"
+            resp = self._make_request("GET", endpoint)
+            if not resp or resp.get("error") or "contacts" not in resp:
+                break
+            batch = resp["contacts"]
+            emails.extend(c["email"] for c in batch)
+            if len(batch) < limit:
+                break
+            offset += limit
+        return emails
+
+    def delete_contact(self, email):
+        """Deletes a single contact by email. Returns True on success."""
+        endpoint = f"contacts/{email}"
+        resp = self._make_request("DELETE", endpoint)
+        if isinstance(resp, dict) and resp.get("error"):
+            return False
+        return True
+
+    def delete_all_contacts_in_list(self, list_id):
+        """Deletes every contact in a list. Returns (deleted_count, failed_count)."""
+        emails = self.get_all_contacts_in_list(list_id)
+        print(f"Found {len(emails)} contacts to delete in list {list_id}")
+        deleted, failed = 0, 0
+        for email in emails:
+            if self.delete_contact(email):
+                deleted += 1
+            else:
+                failed += 1
+                print(f"  -> Failed to delete: {email}")
+        print(f"Deletion complete: {deleted} deleted, {failed} failed")
+        return deleted, failed
