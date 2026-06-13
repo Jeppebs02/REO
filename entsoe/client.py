@@ -27,6 +27,36 @@ def _resolve_eic(zone_or_eic: str) -> str:
     return _ZONE_EIC.get(zone_or_eic, zone_or_eic)
 
 
+def _fill_day_gaps(
+        day_array: np.ndarray,
+        period_start: datetime,
+        fill_value,
+) -> np.ndarray:
+    """Pad intra-day gaps in a psr day array to ensure exactly 96 rows.
+
+    Walks through all 96 expected 15-min positions and consumes rows from
+    day_array in order. Any position whose expected timestamp is not the next
+    row in day_array receives a fill_value row instead.
+    """
+    if day_array.shape[0] == 96:
+        return day_array
+
+    existing = list(day_array)
+    idx = 0
+    result = []
+
+    for pos in range(1, 97):
+        hour_offset = (pos - 1) // 4
+        ts = (period_start + timedelta(hours=hour_offset)).strftime("%Y%m%d%H")
+        if idx < len(existing) and str(existing[idx][0]) == ts:
+            result.append(existing[idx])
+            idx += 1
+        else:
+            result.append([ts, fill_value])
+
+    return np.array(result, dtype=object)
+
+
 class EntsoEClient:
 
     def __init__(self, api_key: str, skipped_log: str = "skipped_dates.log"):
@@ -87,6 +117,7 @@ class EntsoEClient:
                         if psr_xml:
                             day_array = psr_xml_to_numpy(psr_xml, log_fn=self._http._log_skipped)
                             if day_array is not None and day_array.size > 0:
+                                day_array = _fill_day_gaps(day_array, start_dt, fill_value)
                                 daily_arrays.append(day_array)
                                 print(f"    Successfully processed {day_array.shape[0]} points.")
                             elif pad_missing_days:

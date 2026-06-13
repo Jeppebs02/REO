@@ -3,7 +3,7 @@ Fetches 15-minute production data for four Danish solar farms:
   - Solar Park Holsted
   - Solar Park Kassoe
   - Solar Park Gedmosen
-  - Solar Park Viuf og Håstrup  (TODO: verify exact name via discover_psr_names.py)
+  - Solar Park Viuf og Håstrup
 
 Period: 2025-01-01 → 2026-06-12
 Output: CSV files in the current working directory (run from ENTSO-E/)
@@ -85,15 +85,15 @@ def process_psrs(
             if resource_code:
                 print(f"  Using RegisteredResource code: {resource_code}")
             print(f"No cached file found ({default_file}). Fetching from API...")
-            data = eep.fetch_and_process_psr_data_range_new(
-                overall_start_date_str=start_date,
-                overall_end_date_str=end_date,
-                domain_eic=domain_eic,
-                psr_name_to_extract=psr,
+            data = eep.actual_generation_per_unit(
+                zone=domain_eic,
+                psr_name=psr,
+                start=start_date,
+                end=end_date,
+                registered_resource=resource_code,
                 time_hour_minute=time_hour_minute,
                 pad_missing_days=pad_missing_days,
                 fill_value=fill_value,
-                registered_resource=resource_code,
             )
             if data is None or data.size == 0:
                 print(f"✗ Failed to fetch data for {psr}")
